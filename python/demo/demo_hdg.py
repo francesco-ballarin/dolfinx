@@ -16,6 +16,10 @@
 # - Solve Poisson's equation using an HDG scheme.
 
 # +
+
+print("Disabled by FB.")
+exit(0)
+
 import importlib.util
 
 if importlib.util.find_spec("petsc4py") is not None:

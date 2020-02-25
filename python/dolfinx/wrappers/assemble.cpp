@@ -68,12 +68,29 @@ create_sparsity(const dolfinx::fem::FunctionSpace<U>& V0,
       comm, {dofmap1->index_map, dofmap0->index_map},
       {dofmap1->index_map_bs(), dofmap0->index_map_bs()});
 
+  std::array dofmaps_map{dofmap1->map(), dofmap0->map()};
+  std::array<std::span<const std::int32_t>, 2> dofmaps_list{
+    std::span<const std::int32_t>(dofmaps_map[0].data_handle(), dofmaps_map[0].size()),
+    std::span<const std::int32_t>(dofmaps_map[1].data_handle(), dofmaps_map[1].size())};
+  std::array<std::vector<std::size_t>, 2> dofmaps_bounds_writable;
+  dofmaps_bounds_writable[0].resize(dofmaps_map[0].extent(0) + 1);
+  dofmaps_bounds_writable[1].resize(dofmaps_map[1].extent(0) + 1);
+  std::generate(
+    dofmaps_bounds_writable[0].begin(), dofmaps_bounds_writable[0].end(),
+    [&dofmaps_map, n = 0] () mutable { return dofmaps_map[0].extent(1) * n++; });
+  std::generate(
+    dofmaps_bounds_writable[1].begin(), dofmaps_bounds_writable[1].end(),
+    [&dofmaps_map, n = 0] () mutable { return dofmaps_map[1].extent(1) * n++; });
+  std::array<std::span<const std::size_t>, 2> dofmaps_bounds{
+    std::span<const std::size_t>(dofmaps_bounds_writable[0].data(), dofmaps_bounds_writable[0].size()),
+    std::span<const std::size_t>(dofmaps_bounds_writable[1].data(), dofmaps_bounds_writable[1].size())};
+
   int tdim = mesh->topology()->dim();
   auto map = mesh->topology()->index_map(tdim);
   assert(map);
   std::vector<std::int32_t> c(map->size_local(), 0);
   std::iota(c.begin(), c.end(), 0);
-  dolfinx::fem::sparsitybuild::cells(sp, {c, c}, {*dofmap1, *dofmap0});
+  dolfinx::fem::sparsitybuild::cells(sp, c, dofmaps_list, dofmaps_bounds);
   sp.finalize();
 
   return sp;

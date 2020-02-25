@@ -87,7 +87,25 @@ double assemble_matrix0(std::shared_ptr<fem::FunctionSpace<T>> V, auto kernel,
   auto sp = la::SparsityPattern(
       V->mesh()->comm(), {dofmap->index_map, dofmap->index_map},
       {dofmap->index_map_bs(), dofmap->index_map_bs()});
-  fem::sparsitybuild::cells(sp, {cells, cells}, {*dofmap, *dofmap});
+  std::array<std::reference_wrapper<const fem::DofMap>, 2> dofmaps{
+      *dofmap, *dofmap};
+  std::array dofmaps_map{dofmaps[0].get().map(), dofmaps[1].get().map()};
+  std::array<std::span<const std::int32_t>, 2> dofmaps_list{
+    std::span<const std::int32_t>(dofmaps_map[0].data_handle(), dofmaps_map[0].size()),
+    std::span<const std::int32_t>(dofmaps_map[1].data_handle(), dofmaps_map[1].size())};
+  std::array<std::vector<std::size_t>, 2> dofmaps_bounds_writable;
+  dofmaps_bounds_writable[0].resize(dofmaps_map[0].extent(0) + 1);
+  dofmaps_bounds_writable[1].resize(dofmaps_map[1].extent(0) + 1);
+  std::generate(
+    dofmaps_bounds_writable[0].begin(), dofmaps_bounds_writable[0].end(),
+    [&dofmaps_map, n = 0] () mutable { return dofmaps_map[0].extent(1) * n++; });
+  std::generate(
+    dofmaps_bounds_writable[1].begin(), dofmaps_bounds_writable[1].end(),
+    [&dofmaps_map, n = 0] () mutable { return dofmaps_map[1].extent(1) * n++; });
+  std::array<std::span<const std::size_t>, 2> dofmaps_bounds{
+    std::span<const std::size_t>(dofmaps_bounds_writable[0].data(), dofmaps_bounds_writable[0].size()),
+    std::span<const std::size_t>(dofmaps_bounds_writable[1].data(), dofmaps_bounds_writable[1].size())};
+  fem::sparsitybuild::cells(sp, cells, dofmaps_list, dofmaps_bounds);
   sp.finalize();
   la::MatrixCSR<T> A(sp);
   common::Timer timer("Assembler0 std::function (matrix)");
@@ -138,7 +156,25 @@ double assemble_matrix1(const mesh::Geometry<T>& g, const fem::DofMap& dofmap,
   auto sp = la::SparsityPattern(dofmap.index_map->comm(),
                                 {dofmap.index_map, dofmap.index_map},
                                 {dofmap.index_map_bs(), dofmap.index_map_bs()});
-  fem::sparsitybuild::cells(sp, {cells, cells}, {dofmap, dofmap});
+  std::array<std::reference_wrapper<const fem::DofMap>, 2> dofmaps{
+      dofmap, dofmap};
+  std::array dofmaps_map{dofmaps[0].get().map(), dofmaps[1].get().map()};
+  std::array<std::span<const std::int32_t>, 2> dofmaps_list{
+    std::span<const std::int32_t>(dofmaps_map[0].data_handle(), dofmaps_map[0].size()),
+    std::span<const std::int32_t>(dofmaps_map[1].data_handle(), dofmaps_map[1].size())};
+  std::array<std::vector<std::size_t>, 2> dofmaps_bounds_writable;
+  dofmaps_bounds_writable[0].resize(dofmaps_map[0].extent(0) + 1);
+  dofmaps_bounds_writable[1].resize(dofmaps_map[1].extent(0) + 1);
+  std::generate(
+    dofmaps_bounds_writable[0].begin(), dofmaps_bounds_writable[0].end(),
+    [&dofmaps_map, n = 0] () mutable { return dofmaps_map[0].extent(1) * n++; });
+  std::generate(
+    dofmaps_bounds_writable[1].begin(), dofmaps_bounds_writable[1].end(),
+    [&dofmaps_map, n = 0] () mutable { return dofmaps_map[1].extent(1) * n++; });
+  std::array<std::span<const std::size_t>, 2> dofmaps_bounds{
+    std::span<const std::size_t>(dofmaps_bounds_writable[0].data(), dofmaps_bounds_writable[0].size()),
+    std::span<const std::size_t>(dofmaps_bounds_writable[1].data(), dofmaps_bounds_writable[1].size())};
+  fem::sparsitybuild::cells(sp, cells, dofmaps_list, dofmaps_bounds);
   sp.finalize();
   la::MatrixCSR<T> A(sp);
   auto ident = [](auto, auto, auto, auto) {}; // DOF permutation not required
