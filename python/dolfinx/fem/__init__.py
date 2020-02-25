@@ -32,6 +32,7 @@ from dolfinx.fem.bcs import (
     locate_dofs_topological,
 )
 from dolfinx.fem.dofmap import DofMap
+from dolfinx.fem.dofmap_restriction import DofMapRestriction
 from dolfinx.fem.element import CoordinateElement, coordinate_element
 from dolfinx.fem.forms import (
     Form,
@@ -177,6 +178,7 @@ __all__ = [
     "dirichletbc",
     "bcs_by_block",
     "DofMap",
+    "DofMapRestriction",
     "Form",
     "form",
     "IntegralType",
