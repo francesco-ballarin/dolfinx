@@ -16,6 +16,7 @@
 #include <dolfinx/fem/CoordinateElement.h>
 #include <dolfinx/fem/DirichletBC.h>
 #include <dolfinx/fem/DofMap.h>
+#include <dolfinx/fem/DofMapRestriction.h>
 #include <dolfinx/fem/ElementDofLayout.h>
 #include <dolfinx/fem/Expression.h>
 #include <dolfinx/fem/FiniteElement.h>
@@ -333,6 +334,28 @@ void fem(py::module& m)
       .def_property_readonly("bs", &dolfinx::fem::DofMap::bs)
       .def("list", &dolfinx::fem::DofMap::list,
            py::return_value_policy::reference_internal);
+
+  // dolfinx::fem::DofMapRestriction
+  py::class_<dolfinx::fem::DofMapRestriction, std::shared_ptr<dolfinx::fem::DofMapRestriction>>(
+      m, "DofMapRestriction", "DofMapRestriction object")
+      .def(py::init<std::shared_ptr<const dolfinx::fem::DofMap>,
+                    const std::vector<std::int32_t>&>(),
+           py::arg("dofmap"), py::arg("restriction"))
+      .def("cell_dofs",
+           [](const dolfinx::fem::DofMapRestriction& self, int cell) {
+             tcb::span<const std::int32_t> dofs = self.cell_dofs(cell);
+             return py::array_t<std::int32_t>(dofs.size(), dofs.data(),
+                                              py::cast(self));
+           })
+      .def_property_readonly("dofmap", &dolfinx::fem::DofMapRestriction::dofmap)
+      .def_property_readonly("unrestricted_to_restricted",
+                             &dolfinx::fem::DofMapRestriction::unrestricted_to_restricted)
+      .def_property_readonly("restricted_to_unrestricted",
+                             &dolfinx::fem::DofMapRestriction::restricted_to_unrestricted)
+      .def("list", &dolfinx::fem::DofMapRestriction::list)
+      .def_readonly("index_map", &dolfinx::fem::DofMapRestriction::index_map)
+      .def_property_readonly("index_map_bs",
+                             &dolfinx::fem::DofMapRestriction::index_map_bs);
 
   // dolfinx::fem::CoordinateElement
   py::class_<dolfinx::fem::CoordinateElement,
