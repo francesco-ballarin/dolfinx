@@ -1,4 +1,4 @@
-// Copyright (C) 2007-2023 Garth N. Wells
+// Copyright (C) 2007-2023 Garth N. Wells and Francesco Ballarin
 //
 // This file is part of DOLFINx (https://www.fenicsproject.org)
 //
@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <functional>
 #include <span>
+#include <dolfinx/la/SparsityPattern.h>
 
 namespace dolfinx::la
 {
@@ -25,38 +26,30 @@ namespace sparsitybuild
 {
 /// @brief Iterate over cells and insert entries into sparsity pattern.
 ///
-/// Inserts the rectangular blocks of indices `dofmap[0][cells[0][i]] x
-/// dofmap[1][cells[1][i]]` into the sparsity pattern, i.e. entries
-/// `(dofmap[0][cells[0][i]][k0], dofmap[0][cells[0][i]][k1])` will
-/// appear in the sparsity pattern.
-///
-/// @param pattern Sparsity pattern to insert into.
-/// @param cells Lists of cells to iterate over. `cells[0]` and
-/// `cells[1]` must have the same size.
-/// @param dofmaps Dofmaps to used in building the sparsity pattern.
-/// @note The sparsity pattern is not finalised.
-void cells(la::SparsityPattern& pattern,
-           std::array<std::span<const std::int32_t>, 2> cells,
-           std::array<std::reference_wrapper<const DofMap>, 2> dofmaps);
+/// @param[in,out] pattern The sparsity pattern to insert into
+/// @param[in] cells The cell indices
+/// @param[in] dofmaps_list Dofmaps list to used in building the sparsity pattern
+/// @param[in] dofmaps_bounds Dofmaps bounds to used in building the sparsity pattern
+/// @note The sparsity pattern is not finalised
+void cells(la::SparsityPattern& pattern, std::span<const std::int32_t> cells,
+           std::array<std::span<const std::int32_t>, 2> dofmaps_list,
+           std::array<std::span<const std::size_t>, 2> dofmaps_bounds);
 
 /// @brief Iterate over interior facets and insert entries into sparsity
 /// pattern.
 ///
-/// Inserts the rectangular blocks of indices `[dofmap[0][cell0],
-/// dofmap[0][cell1]] x [dofmap[1][cell0] + dofmap[1][cell1]]` where
-/// `cell0` and `cell1` are the two cells attached to a facet.
-///
-/// @param[in,out] pattern Sparsity pattern to insert into.
-/// @param[in] cells Cells to index into each dofmap. `cells[i]` is a
-/// list of `(cell0, cell1)` pairs for each interior facet to index into
-/// `dofmap[i]`. `cells[0]` and `cells[1]` must have the same size.
-/// @param[in] dofmaps Dofmaps to use in building the sparsity pattern.
+/// @param[in,out] pattern Sparsity pattern to insert into
+/// @param[in] facets Facets as `(cell0, cell1)` pairs for each facet.
+/// @param[in] dofmaps_list The dofmap list to use in building the sparsity
+/// pattern.
+/// @param[in] dofmaps_bounds The dofmap bounds to use in building the sparsity
+/// pattern.
 ///
 /// @note The sparsity pattern is not finalised.
 void interior_facets(
-    la::SparsityPattern& pattern,
-    std::array<std::span<const std::int32_t>, 2> cells,
-    std::array<std::reference_wrapper<const DofMap>, 2> dofmaps);
+    la::SparsityPattern& pattern, std::span<const std::int32_t> facets,
+    std::array<std::span<const std::int32_t>, 2> dofmaps_list,
+    std::array<std::span<const std::size_t>, 2> dofmaps_bounds);
 
 } // namespace sparsitybuild
 } // namespace dolfinx::fem

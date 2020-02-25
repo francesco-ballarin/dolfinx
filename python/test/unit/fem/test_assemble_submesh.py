@@ -176,6 +176,7 @@ def M_ufl(f, g, measure):
         return (f("+") + f("-")) * (g("+") + g("-")) * measure
 
 
+@pytest.mark.skip(reason="disabled by FB")
 @pytest.mark.parametrize("n", [4, 6])
 @pytest.mark.parametrize("k", [1, 3])
 @pytest.mark.parametrize("space", ["Lagrange", "Discontinuous Lagrange"])
