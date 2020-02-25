@@ -3,6 +3,7 @@ set(HEADERS_fem
     ${CMAKE_CURRENT_SOURCE_DIR}/CoordinateElement.h
     ${CMAKE_CURRENT_SOURCE_DIR}/DirichletBC.h
     ${CMAKE_CURRENT_SOURCE_DIR}/DofMap.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/DofMapRestriction.h
     ${CMAKE_CURRENT_SOURCE_DIR}/ElementDofLayout.h
     ${CMAKE_CURRENT_SOURCE_DIR}/Expression.h
     ${CMAKE_CURRENT_SOURCE_DIR}/FiniteElement.h
@@ -29,6 +30,7 @@ target_sources(
   PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/DirichletBC.cpp
           ${CMAKE_CURRENT_SOURCE_DIR}/CoordinateElement.cpp
           ${CMAKE_CURRENT_SOURCE_DIR}/DofMap.cpp
+          ${CMAKE_CURRENT_SOURCE_DIR}/DofMapRestriction.cpp
           ${CMAKE_CURRENT_SOURCE_DIR}/ElementDofLayout.cpp
           ${CMAKE_CURRENT_SOURCE_DIR}/FiniteElement.cpp
           ${CMAKE_CURRENT_SOURCE_DIR}/dofmapbuilder.cpp
