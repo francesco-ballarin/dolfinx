@@ -53,15 +53,16 @@ la::SparsityPattern fem::create_sparsity_pattern(
     switch (type)
     {
     case fem::IntegralType::cell:
-      sparsitybuild::cells(pattern, topology, {{dofmaps[0], dofmaps[1]}});
+      sparsitybuild::cells(pattern, topology,
+                           {{&dofmaps[0].get().list(), &dofmaps[1].get().list()}});
       break;
     case fem::IntegralType::interior_facet:
       sparsitybuild::interior_facets(pattern, topology,
-                                     {{dofmaps[0], dofmaps[1]}});
+                                     {{&dofmaps[0].get().list(), &dofmaps[1].get().list()}});
       break;
     case fem::IntegralType::exterior_facet:
       sparsitybuild::exterior_facets(pattern, topology,
-                                     {{dofmaps[0], dofmaps[1]}});
+                                     {{&dofmaps[0].get().list(), &dofmaps[1].get().list()}});
       break;
     default:
       throw std::runtime_error("Unsupported integral type");

@@ -67,8 +67,8 @@ Mat fem::create_matrix_block(
         // Build sparsity pattern for block
         assert(V[0][row]->dofmap());
         assert(V[1][col]->dofmap());
-        std::array<const std::reference_wrapper<const fem::DofMap>, 2> dofmaps{
-            *V[0][row]->dofmap(), *V[1][col]->dofmap()};
+        std::array dofmaps{&V[0][row]->dofmap()->list(),
+                           &V[1][col]->dofmap()->list()};
         assert(patterns[row].back());
         auto& sp = patterns[row].back();
         assert(sp);
