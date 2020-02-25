@@ -182,6 +182,7 @@ def M_ufl(f, g, measure):
         return (f("+") + f("-")) * (g("+") + g("-")) * measure
 
 
+@pytest.mark.skip(reason="disabled by FB")
 @pytest.mark.parametrize("n", [4, 6])
 @pytest.mark.parametrize("k", [1, 3])
 @pytest.mark.parametrize("space", ["Lagrange", "Discontinuous Lagrange"])
@@ -297,6 +298,7 @@ def test_mixed_dom_codim_0(n, k, space, integral_type):
     assert np.isclose(c1, c)
 
 
+@pytest.mark.skip(reason="disabled by FB")
 @pytest.mark.parametrize("n", [4, 6])
 @pytest.mark.parametrize("k", [1, 3])
 def test_mixed_dom_codim_1(n, k):

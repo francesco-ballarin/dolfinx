@@ -161,6 +161,22 @@ la::SparsityPattern create_sparsity_pattern(const Form<T, U>& a)
   std::array<std::reference_wrapper<const DofMap>, 2> dofmaps{
       *a.function_spaces().at(0)->dofmap(),
       *a.function_spaces().at(1)->dofmap()};
+  std::array dofmaps_map{dofmaps[0].get().map(), dofmaps[1].get().map()};
+  std::array<std::span<const std::int32_t>, 2> dofmaps_list{
+    std::span<const std::int32_t>(dofmaps_map[0].data_handle(), dofmaps_map[0].size()),
+    std::span<const std::int32_t>(dofmaps_map[1].data_handle(), dofmaps_map[1].size())};
+  std::array<std::vector<std::size_t>, 2> dofmaps_bounds_writable;
+  dofmaps_bounds_writable[0].resize(dofmaps_map[0].extent(0) + 1);
+  dofmaps_bounds_writable[1].resize(dofmaps_map[1].extent(0) + 1);
+  std::generate(
+    dofmaps_bounds_writable[0].begin(), dofmaps_bounds_writable[0].end(),
+    [&dofmaps_map, n = 0] () mutable { return dofmaps_map[0].extent(1) * n++; });
+  std::generate(
+    dofmaps_bounds_writable[1].begin(), dofmaps_bounds_writable[1].end(),
+    [&dofmaps_map, n = 0] () mutable { return dofmaps_map[1].extent(1) * n++; });
+  std::array<std::span<const std::size_t>, 2> dofmaps_bounds{
+    std::span<const std::size_t>(dofmaps_bounds_writable[0].data(), dofmaps_bounds_writable[0].size()),
+    std::span<const std::size_t>(dofmaps_bounds_writable[1].data(), dofmaps_bounds_writable[1].size())};
   std::shared_ptr mesh = a.mesh();
   assert(mesh);
 
@@ -207,28 +223,29 @@ la::SparsityPattern create_sparsity_pattern(const Form<T, U>& a)
     case IntegralType::cell:
       for (int id : ids)
       {
-        sparsitybuild::cells(
-            pattern, {a.domain(type, id, *mesh0), a.domain(type, id, *mesh1)},
-            {{dofmaps[0], dofmaps[1]}});
+        sparsitybuild::cells(pattern, a.domain(type, id), dofmaps_list, dofmaps_bounds);
       }
       break;
     case IntegralType::interior_facet:
       for (int id : ids)
       {
-        sparsitybuild::interior_facets(
-            pattern,
-            {extract_cells(a.domain(type, id, *mesh0)),
-             extract_cells(a.domain(type, id, *mesh1))},
-            {{dofmaps[0], dofmaps[1]}});
+        std::span<const std::int32_t> facets = a.domain(type, id);
+        std::vector<std::int32_t> f;
+        f.reserve(facets.size() / 2);
+        for (std::size_t i = 0; i < facets.size(); i += 4)
+          f.insert(f.end(), {facets[i], facets[i + 2]});
+        sparsitybuild::interior_facets(pattern, f, dofmaps_list, dofmaps_bounds);
       }
       break;
     case IntegralType::exterior_facet:
       for (int id : ids)
       {
-        sparsitybuild::cells(pattern,
-                             {extract_cells(a.domain(type, id, *mesh0)),
-                              extract_cells(a.domain(type, id, *mesh1))},
-                             {{dofmaps[0], dofmaps[1]}});
+        std::span<const std::int32_t> facets = a.domain(type, id);
+        std::vector<std::int32_t> cells;
+        cells.reserve(facets.size() / 2);
+        for (std::size_t i = 0; i < facets.size(); i += 2)
+          cells.push_back(facets[i]);
+        sparsitybuild::cells(pattern, cells, dofmaps_list, dofmaps_bounds);
       }
       break;
     default:

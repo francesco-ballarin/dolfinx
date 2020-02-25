@@ -1,4 +1,4 @@
-// Copyright (C) 2007-2023 Garth N. Wells
+// Copyright (C) 2007-2023 Garth N. Wells and Francesco Ballarin
 //
 // This file is part of DOLFINx (https://www.fenicsproject.org)
 //
@@ -14,47 +14,46 @@ using namespace dolfinx::fem;
 
 //-----------------------------------------------------------------------------
 void sparsitybuild::cells(
-    la::SparsityPattern& pattern,
-    std::array<std::span<const std::int32_t>, 2> cells,
-    std::array<std::reference_wrapper<const DofMap>, 2> dofmaps)
+    la::SparsityPattern& pattern, std::span<const std::int32_t> cells,
+    std::array<std::span<const std::int32_t>, 2> dofmaps_list,
+    std::array<std::span<const std::size_t>, 2> dofmaps_bounds)
 {
-  assert(cells[0].size() == cells[1].size());
-  const DofMap& map0 = dofmaps[0].get();
-  const DofMap& map1 = dofmaps[1].get();
-  for (std::size_t i = 0; i < cells[0].size(); ++i)
-    pattern.insert(map0.cell_dofs(cells[0][i]), map1.cell_dofs(cells[1][i]));
+  for (auto c : cells)
+  {
+    auto cell_dofs_0
+        = std::span(dofmaps_list[0].data() + dofmaps_bounds[0][c],
+                    dofmaps_bounds[0][c + 1] - dofmaps_bounds[0][c]);
+    auto cell_dofs_1
+        = std::span(dofmaps_list[1].data() + dofmaps_bounds[1][c],
+                    dofmaps_bounds[1][c + 1] - dofmaps_bounds[1][c]);
+    pattern.insert(cell_dofs_0, cell_dofs_1);
+  }
 }
 //-----------------------------------------------------------------------------
 void sparsitybuild::interior_facets(
-    la::SparsityPattern& pattern,
-    std::array<std::span<const std::int32_t>, 2> cells,
-    std::array<std::reference_wrapper<const DofMap>, 2> dofmaps)
+    la::SparsityPattern& pattern, std::span<const std::int32_t> facets,
+    std::array<std::span<const std::int32_t>, 2> dofmaps_list,
+    std::array<std::span<const std::size_t>, 2> dofmaps_bounds)
 {
-  std::span<const std::int32_t> cells0 = cells[0];
-  std::span<const std::int32_t> cells1 = cells[1];
-  assert(cells0.size() == cells1.size());
-  const DofMap& dofmap0 = dofmaps[0];
-  const DofMap& dofmap1 = dofmaps[1];
-
-  // Iterate over facets
-  std::vector<std::int32_t> macro_dofs0, macro_dofs1;
-  for (std::size_t f = 0; f < cells[0].size(); f += 2)
+  std::array<std::vector<std::int32_t>, 2> macro_dofs;
+  for (std::size_t index = 0; index < facets.size(); index += 2)
   {
-    // Test function dofs (sparsity pattern rows)
-    auto dofs00 = dofmap0.cell_dofs(cells0[f]);
-    auto dofs01 = dofmap0.cell_dofs(cells0[f + 1]);
-    macro_dofs0.resize(dofs00.size() + dofs01.size());
-    std::ranges::copy(dofs00, macro_dofs0.begin());
-    std::ranges::copy(dofs01, std::next(macro_dofs0.begin(), dofs00.size()));
-
-    // Trial function dofs (sparsity pattern columns)
-    auto dofs10 = dofmap1.cell_dofs(cells1[f]);
-    auto dofs11 = dofmap1.cell_dofs(cells1[f + 1]);
-    macro_dofs1.resize(dofs10.size() + dofs11.size());
-    std::ranges::copy(dofs10, macro_dofs1.begin());
-    std::ranges::copy(dofs11, std::next(macro_dofs1.begin(), dofs10.size()));
-
-    pattern.insert(macro_dofs0, macro_dofs1);
+    int cell_0 = facets[index];
+    int cell_1 = facets[index + 1];
+    for (std::size_t i = 0; i < 2; ++i)
+    {
+      auto cell_dofs_0 = std::span(
+          dofmaps_list[i].data() + dofmaps_bounds[i][cell_0],
+          dofmaps_bounds[i][cell_0 + 1] - dofmaps_bounds[i][cell_0]);
+      auto cell_dofs_1 = std::span(
+          dofmaps_list[i].data() + dofmaps_bounds[i][cell_1],
+          dofmaps_bounds[i][cell_1 + 1] - dofmaps_bounds[i][cell_1]);
+      macro_dofs[i].resize(cell_dofs_0.size() + cell_dofs_1.size());
+      std::copy(cell_dofs_0.begin(), cell_dofs_0.end(), macro_dofs[i].begin());
+      std::copy(cell_dofs_1.begin(), cell_dofs_1.end(),
+                std::next(macro_dofs[i].begin(), cell_dofs_0.size()));
+    }
+    pattern.insert(macro_dofs[0], macro_dofs[1]);
   }
 }
 //-----------------------------------------------------------------------------
