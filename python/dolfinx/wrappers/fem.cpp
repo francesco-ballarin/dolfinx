@@ -14,6 +14,7 @@
 #include <dolfinx/fem/CoordinateElement.h>
 #include <dolfinx/fem/DirichletBC.h>
 #include <dolfinx/fem/DofMap.h>
+#include <dolfinx/fem/DofMapRestriction.h>
 #include <dolfinx/fem/ElementDofLayout.h>
 #include <dolfinx/fem/Expression.h>
 #include <dolfinx/fem/FiniteElement.h>
@@ -1265,6 +1266,38 @@ void fem(nb::module_& m)
                 dofs.data_handle(), {dofs.extent(0), dofs.extent(1)});
           },
           nb::rv_policy::reference_internal);
+
+  // dolfinx::fem::DofMapRestriction
+  nb::class_<dolfinx::fem::DofMapRestriction>(m, "DofMapRestriction", "DofMapRestriction object")
+      .def(nb::init<std::shared_ptr<const dolfinx::fem::DofMap>,
+                    const std::vector<std::int32_t>&>(),
+           nb::arg("dofmap"), nb::arg("restriction"))
+      .def("cell_dofs",
+           [](const dolfinx::fem::DofMapRestriction& self, int cell)
+           {
+             auto dofs = self.cell_dofs(cell);
+             return nb::ndarray<const std::int32_t, nb::numpy>(
+                dofs.data(), {dofs.size()}, nb::handle());
+           },
+           nb::rv_policy::reference_internal, nb::arg("cell"))
+      .def_prop_ro("dofmap", &dolfinx::fem::DofMapRestriction::dofmap)
+      .def_prop_ro("unrestricted_to_restricted",
+                   &dolfinx::fem::DofMapRestriction::unrestricted_to_restricted)
+      .def_prop_ro("restricted_to_unrestricted",
+                   &dolfinx::fem::DofMapRestriction::restricted_to_unrestricted)
+      .def("map",
+           [](const dolfinx::fem::DofMapRestriction& self) {
+             auto map = self.map();
+             return std::make_pair(
+                nb::ndarray<const std::int32_t, nb::numpy>(
+                    map.first.data(), {map.first.size()}, nb::handle()),
+                nb::ndarray<const std::size_t, nb::numpy>(
+                    map.second.data(), {map.second.size()}, nb::handle()));
+           },
+           nb::rv_policy::reference_internal)
+      .def_ro("index_map", &dolfinx::fem::DofMapRestriction::index_map)
+      .def_prop_ro("index_map_bs",
+                   &dolfinx::fem::DofMapRestriction::index_map_bs);
 
   nb::enum_<dolfinx::fem::IntegralType>(m, "IntegralType")
       .value("cell", dolfinx::fem::IntegralType::cell, "cell integral")
