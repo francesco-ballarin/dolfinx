@@ -83,7 +83,7 @@ Interpolation
 Sparsity pattern construction
 -----------------------------
 
-.. doxygenfunction:: dolfinx::fem::create_sparsity_pattern(const Form<T, U>&)
+.. doxygenfunction:: dolfinx::fem::_create_sparsity_pattern(const Form<T, U>&)
    :project: DOLFINx
 
 
