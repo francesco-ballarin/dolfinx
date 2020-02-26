@@ -5,7 +5,6 @@
 # SPDX-License-Identifier:    LGPL-3.0-or-later
 """Assembly functions for variational forms."""
 
-import contextlib
 import functools
 import typing
 from contextlib import ExitStack
@@ -31,35 +30,43 @@ def _create_cpp_form(form):
     return form
 
 
-def _get_block_function_spaces(_a):
-    rows = len(_a)
-    cols = len(_a[0])
-    assert all(len(a_i) == cols for a_i in _a)
-    assert all(_a[i][j] is None or _a[i][j].rank == 2 for i in range(rows) for j in range(cols))
-    function_spaces_0 = list()
-    for i in range(rows):
-        function_spaces_0_i = None
-        for j in range(cols):
-            if _a[i][j] is not None:
-                function_spaces_0_i = _a[i][j].function_spaces[0]
-                break
-        assert function_spaces_0_i is not None
-        function_spaces_0.append(function_spaces_0_i)
-    function_spaces_1 = list()
-    for j in range(cols):
-        function_spaces_1_j = None
+def _get_block_function_spaces(block_form):
+    assert isinstance(block_form, list)
+    assert all(isinstance(block_form_, (cpp.fem.Form, list)) for block_form_ in block_form)
+    if isinstance(block_form[0], list):
+        assert all(isinstance(form, cpp.fem.Form) or form is None for block_form_ in block_form
+                   for form in block_form_)
+        _a = block_form
+        rows = len(_a)
+        cols = len(_a[0])
+        assert all(len(a_i) == cols for a_i in _a)
+        assert all(_a[i][j] is None or _a[i][j].rank == 2 for i in range(rows) for j in range(cols))
+        function_spaces_0 = list()
         for i in range(rows):
-            if _a[i][j] is not None:
-                function_spaces_1_j = _a[i][j].function_spaces[1]
-                break
-        assert function_spaces_1_j is not None
-        function_spaces_1.append(function_spaces_1_j)
-    function_spaces = [function_spaces_0, function_spaces_1]
-    assert all(_a[i][j] is None or _a[i][j].function_spaces[0] == function_spaces[0][i]
-               for i in range(rows) for j in range(cols))
-    assert all(_a[i][j] is None or _a[i][j].function_spaces[1] == function_spaces[1][j]
-               for i in range(rows) for j in range(cols))
-    return function_spaces
+            function_spaces_0_i = None
+            for j in range(cols):
+                if _a[i][j] is not None:
+                    function_spaces_0_i = _a[i][j].function_spaces[0]
+                    break
+            assert function_spaces_0_i is not None
+            function_spaces_0.append(function_spaces_0_i)
+        function_spaces_1 = list()
+        for j in range(cols):
+            function_spaces_1_j = None
+            for i in range(rows):
+                if _a[i][j] is not None:
+                    function_spaces_1_j = _a[i][j].function_spaces[1]
+                    break
+            assert function_spaces_1_j is not None
+            function_spaces_1.append(function_spaces_1_j)
+        function_spaces = [function_spaces_0, function_spaces_1]
+        assert all(_a[i][j] is None or _a[i][j].function_spaces[0] == function_spaces[0][i]
+                   for i in range(rows) for j in range(cols))
+        assert all(_a[i][j] is None or _a[i][j].function_spaces[1] == function_spaces[1][j]
+                   for i in range(rows) for j in range(cols))
+        return function_spaces
+    else:
+        return [form.function_spaces[0] for form in block_form]
 
 
 def _same_dofmap(dofmap1, dofmap2):
@@ -79,21 +86,43 @@ def _same_dofmap(dofmap1, dofmap2):
 # -- Vector instantiation ----------------------------------------------------
 
 
-def create_vector(L: typing.Union[Form, cpp.fem.Form]) -> PETSc.Vec:
+def create_vector(L: typing.Union[Form, cpp.fem.Form],
+                  restriction: typing.Optional[cpp.fem.DofMapRestriction] = None) -> PETSc.Vec:
     dofmap = _create_cpp_form(L).function_spaces[0].dofmap
-    return cpp.la.create_vector(dofmap.index_map, dofmap.index_map_bs)
+    if restriction is None:
+        index_map = dofmap.index_map
+        index_map_bs = dofmap.index_map_bs
+    else:
+        assert _same_dofmap(restriction.dofmap, dofmap)
+        index_map = restriction.index_map
+        index_map_bs = restriction.index_map_bs
+    return cpp.la.create_vector(index_map, index_map_bs)
 
 
-def create_vector_block(L: typing.List[typing.Union[Form, cpp.fem.Form]]) -> PETSc.Vec:
-    maps = [(form.function_spaces[0].dofmap.index_map, form.function_spaces[0].dofmap.index_map_bs)
-            for form in _create_cpp_form(L)]
-    return cpp.fem.create_vector_block(maps)
+def create_vector_block(L: typing.List[typing.Union[Form, cpp.fem.Form]],
+                        restriction: typing.Optional[typing.List[cpp.fem.DofMapRestriction]] = None) -> PETSc.Vec:
+    function_spaces = _get_block_function_spaces(_create_cpp_form(L))
+    dofmaps = [function_space.dofmap for function_space in function_spaces]
+    if restriction is None:
+        index_maps = [(dofmap.index_map, dofmap.index_map_bs) for dofmap in dofmaps]
+    else:
+        assert len(restriction) == len(dofmaps)
+        assert all(_same_dofmap(restriction_.dofmap, dofmap) for (restriction_, dofmap) in zip(restriction, dofmaps))
+        index_maps = [(restriction_.index_map, restriction_.index_map_bs) for restriction_ in restriction]
+    return cpp.fem.create_vector_block(index_maps)
 
 
-def create_vector_nest(L: typing.List[typing.Union[Form, cpp.fem.Form]]) -> PETSc.Vec:
-    maps = [(form.function_spaces[0].dofmap.index_map, form.function_spaces[0].dofmap.index_map_bs)
-            for form in _create_cpp_form(L)]
-    return cpp.fem.create_vector_nest(maps)
+def create_vector_nest(L: typing.List[typing.Union[Form, cpp.fem.Form]],
+                       restriction: typing.Optional[typing.List[cpp.fem.DofMapRestriction]] = None) -> PETSc.Vec:
+    function_spaces = _get_block_function_spaces(_create_cpp_form(L))
+    dofmaps = [function_space.dofmap for function_space in function_spaces]
+    if restriction is None:
+        index_maps = [(dofmap.index_map, dofmap.index_map_bs) for dofmap in dofmaps]
+    else:
+        assert len(restriction) == len(dofmaps)
+        assert all(_same_dofmap(restriction_.dofmap, dofmap) for (restriction_, dofmap) in zip(restriction, dofmaps))
+        index_maps = [(restriction_.index_map, restriction_.index_map_bs) for restriction_ in restriction]
+    return cpp.fem.create_vector_nest(index_maps)
 
 
 # -- Matrix instantiation ----------------------------------------------------
@@ -198,60 +227,293 @@ def assemble_scalar(M: typing.Union[Form, cpp.fem.Form]) -> PETSc.ScalarType:
 # -- Vector assembly ---------------------------------------------------------
 
 
+def _VecSubVectorWrapperBase(CppWrapperClass):
+
+    class _VecSubVectorWrapperBase_Class(object):
+        def __init__(self,
+                     b: PETSc.Vec, unrestricted_index_set: PETSc.IS,
+                     restricted_index_set: typing.Optional[PETSc.IS] = None,
+                     unrestricted_to_restricted: typing.Optional[typing.Dict[int, int]] = None,
+                     unrestricted_to_restricted_bs: typing.Optional[int] = None):
+            if restricted_index_set is None:
+                assert unrestricted_to_restricted is None
+                assert unrestricted_to_restricted_bs is None
+                self._cpp_object = CppWrapperClass(b, unrestricted_index_set)
+            else:
+                self._cpp_object = CppWrapperClass(b, unrestricted_index_set, restricted_index_set,
+                                                   unrestricted_to_restricted, unrestricted_to_restricted_bs)
+
+        def __enter__(self):
+            return self._cpp_object.content
+
+        def __exit__(self, exception_type, exception_value, traceback):
+            pass
+
+    return _VecSubVectorWrapperBase_Class
+
+
+_VecSubVectorReadWrapper = _VecSubVectorWrapperBase(cpp.la.VecSubVectorReadWrapper)
+
+
+class _VecSubVectorWrapper(_VecSubVectorWrapperBase(cpp.la.VecSubVectorWrapper)):
+    def __exit__(self, exception_type, exception_value, traceback):
+        self._cpp_object.restore()
+
+
+def VecSubVectorWrapperBase(_VecSubVectorWrapperClass):
+
+    class VecSubVectorWrapperBase_Class(object):
+        def __init__(self,
+                     b: typing.Union[PETSc.Vec, None], dofmap: cpp.fem.DofMap,
+                     restriction: typing.Optional[cpp.fem.DofMapRestriction] = None,
+                     ghosted: bool = True):
+            if b is None:
+                self._wrapper = None
+            else:
+                if restriction is None:
+                    index_map = (dofmap.index_map, dofmap.index_map_bs)
+                    index_set = cpp.la.create_petsc_index_sets(
+                        [index_map], [dofmap.index_map_bs], ghosted=ghosted,
+                        ghost_block_layout=cpp.la.GhostBlockLayout.trailing)[0]
+                    self._wrapper = _VecSubVectorWrapperClass(b, index_set)
+                    self._unrestricted_index_set = index_set
+                    self._restricted_index_set = None
+                    self._unrestricted_to_restricted = None
+                    self._unrestricted_to_restricted_bs = None
+                else:
+                    assert _same_dofmap(dofmap, restriction.dofmap)
+                    unrestricted_index_map = (dofmap.index_map, dofmap.index_map_bs)
+                    unrestricted_index_set = cpp.la.create_petsc_index_sets(
+                        [unrestricted_index_map], [dofmap.index_map_bs], ghosted=ghosted,
+                        ghost_block_layout=cpp.la.GhostBlockLayout.trailing)[0]
+                    restricted_index_map = (restriction.index_map, restriction.index_map_bs)
+                    restricted_index_set = cpp.la.create_petsc_index_sets(
+                        [restricted_index_map], [restriction.index_map_bs], ghosted=ghosted,
+                        ghost_block_layout=cpp.la.GhostBlockLayout.trailing)[0]
+                    unrestricted_to_restricted = restriction.unrestricted_to_restricted
+                    unrestricted_to_restricted_bs = restriction.index_map_bs
+                    self._wrapper = _VecSubVectorWrapperClass(b, unrestricted_index_set, restricted_index_set,
+                                                              unrestricted_to_restricted, unrestricted_to_restricted_bs)
+                    self._unrestricted_index_set = unrestricted_index_set
+                    self._restricted_index_set = restricted_index_set
+                    self._unrestricted_to_restricted = unrestricted_to_restricted
+                    self._unrestricted_to_restricted_bs = unrestricted_to_restricted_bs
+
+        def __enter__(self):
+            if self._wrapper is not None:
+                return self._wrapper.__enter__()
+
+        def __exit__(self, exception_type, exception_value, traceback):
+            if self._wrapper is not None:
+                self._wrapper.__exit__(exception_type, exception_value, traceback)
+                self._unrestricted_index_set.destroy()
+                if self._restricted_index_set is not None:
+                    self._restricted_index_set.destroy()
+
+    return VecSubVectorWrapperBase_Class
+
+
+VecSubVectorReadWrapper = VecSubVectorWrapperBase(_VecSubVectorReadWrapper)
+
+
+VecSubVectorWrapper = VecSubVectorWrapperBase(_VecSubVectorWrapper)
+
+
+def BlockVecSubVectorWrapperBase(_VecSubVectorWrapperClass):
+    class BlockVecSubVectorWrapperBase_Class(object):
+        def __init__(self,
+                     b: typing.Union[PETSc.Vec, None], dofmaps: typing.List[cpp.fem.DofMap],
+                     restriction: typing.Optional[typing.List[cpp.fem.DofMapRestriction]] = None,
+                     ghosted: bool = True):
+            self._b = b
+            self._len = len(dofmaps)
+            if b is not None:
+                if restriction is None:
+                    index_maps = [(dofmap.index_map, dofmap.index_map_bs) for dofmap in dofmaps]
+                    index_sets = cpp.la.create_petsc_index_sets(
+                        index_maps, [1] * len(index_maps), ghosted=ghosted,
+                        ghost_block_layout=cpp.la.GhostBlockLayout.trailing)
+                    self._unrestricted_index_sets = index_sets
+                    self._restricted_index_sets = None
+                    self._unrestricted_to_restricted = None
+                    self._unrestricted_to_restricted_bs = None
+                else:
+                    assert len(dofmaps) == len(restriction)
+                    assert all([_same_dofmap(dofmap, restriction_.dofmap)
+                                for (dofmap, restriction_) in zip(dofmaps, restriction)])
+                    unrestricted_index_maps = [(dofmap.index_map, dofmap.index_map_bs)
+                                               for dofmap in dofmaps]
+                    unrestricted_index_sets = cpp.la.create_petsc_index_sets(
+                        unrestricted_index_maps, [1] * len(unrestricted_index_maps),
+                        ghost_block_layout=cpp.la.GhostBlockLayout.trailing)
+                    restricted_index_maps = [(restriction_.index_map, restriction_.index_map_bs)
+                                             for restriction_ in restriction]
+                    restricted_index_sets = cpp.la.create_petsc_index_sets(
+                        restricted_index_maps, [1] * len(restricted_index_maps),
+                        ghosted=ghosted, ghost_block_layout=cpp.la.GhostBlockLayout.trailing)
+                    unrestricted_to_restricted = [restriction_.unrestricted_to_restricted
+                                                  for restriction_ in restriction]
+                    unrestricted_to_restricted_bs = [restriction_.index_map_bs
+                                                     for restriction_ in restriction]
+                    self._unrestricted_index_sets = unrestricted_index_sets
+                    self._restricted_index_sets = restricted_index_sets
+                    self._unrestricted_to_restricted = unrestricted_to_restricted
+                    self._unrestricted_to_restricted_bs = unrestricted_to_restricted_bs
+
+        def __iter__(self):
+            with ExitStack() as wrapper_stack:
+                for index in range(self._len):
+                    if self._b is None:
+                        yield None
+                    else:
+                        if self._restricted_index_sets is None:
+                            wrapper = _VecSubVectorWrapperClass(self._b,
+                                                                self._unrestricted_index_sets[index])
+                        else:
+                            wrapper = _VecSubVectorWrapperClass(self._b,
+                                                                self._unrestricted_index_sets[index],
+                                                                self._restricted_index_sets[index],
+                                                                self._unrestricted_to_restricted[index],
+                                                                self._unrestricted_to_restricted_bs[index])
+                        yield wrapper_stack.enter_context(wrapper)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exception_type, exception_value, traceback):
+            if self._b is not None:
+                for index_set in self._unrestricted_index_sets:
+                    index_set.destroy()
+                if self._restricted_index_sets is not None:
+                    for index_set in self._restricted_index_sets:
+                        index_set.destroy()
+
+    return BlockVecSubVectorWrapperBase_Class
+
+
+BlockVecSubVectorReadWrapper = BlockVecSubVectorWrapperBase(_VecSubVectorReadWrapper)
+
+
+BlockVecSubVectorWrapper = BlockVecSubVectorWrapperBase(_VecSubVectorWrapper)
+
+
+def NestVecSubVectorWrapperBase(VecSubVectorWrapperClass):
+    class NestVecSubVectorWrapperBase_Class(object):
+        def __init__(self,
+                     b: typing.Union[PETSc.Vec, typing.List[PETSc.Vec], None],
+                     dofmaps: typing.List[cpp.fem.DofMap],
+                     restriction: typing.Optional[typing.List[cpp.fem.DofMapRestriction]] = None,
+                     ghosted: bool = True):
+            if b is not None:
+                if isinstance(b, list):
+                    self._b = b
+                else:
+                    self._b = b.getNestSubVecs()
+                assert len(self._b) == len(dofmaps)
+            else:
+                self._b = [None] * len(dofmaps)
+            self._dofmaps = dofmaps
+            self._restriction = restriction
+            self._ghosted = ghosted
+
+        def __iter__(self):
+            with ExitStack() as wrapper_stack:
+                for index, b_index in enumerate(self._b):
+                    if b_index is None:
+                        yield None
+                    else:
+                        if self._restriction is None:
+                            if self._ghosted:
+                                yield wrapper_stack.enter_context(b_index.localForm()).array_w
+                            else:
+                                yield b_index.array_w
+                        else:
+                            wrapper = VecSubVectorWrapperClass(b_index,
+                                                               self._dofmaps[index],
+                                                               self._restriction[index],
+                                                               ghosted=self._ghosted)
+                            yield wrapper_stack.enter_context(wrapper)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exception_type, exception_value, traceback):
+            pass
+
+    return NestVecSubVectorWrapperBase_Class
+
+
+NestVecSubVectorReadWrapper = NestVecSubVectorWrapperBase(VecSubVectorReadWrapper)
+
+
+NestVecSubVectorWrapper = NestVecSubVectorWrapperBase(VecSubVectorWrapper)
+
+
 @functools.singledispatch
-def assemble_vector(L: typing.Union[Form, cpp.fem.Form]) -> PETSc.Vec:
+def assemble_vector(L: typing.Union[Form, cpp.fem.Form],
+                    restriction: typing.Optional[cpp.fem.DofMapRestriction] = None) -> PETSc.Vec:
     """Assemble linear form into a new PETSc vector. The returned vector is
     not finalised, i.e. ghost values are not accumulated on the owning
     processes.
 
     """
     _L = _create_cpp_form(L)
-    b = cpp.la.create_vector(_L.function_spaces[0].dofmap.index_map,
-                             _L.function_spaces[0].dofmap.index_map_bs)
+    b = create_vector(_L, restriction)
     with b.localForm() as b_local:
         b_local.set(0.0)
-        cpp.fem.assemble_vector(b_local.array_w, _L)
-    return b
+    return assemble_vector(b, _L, restriction)
 
 
 @assemble_vector.register(PETSc.Vec)
-def _(b: PETSc.Vec, L: typing.Union[Form, cpp.fem.Form]) -> PETSc.Vec:
+def _(b: typing.Union[PETSc.Vec],
+      L: typing.Union[Form, cpp.fem.Form],
+      restriction: typing.Optional[cpp.fem.DofMapRestriction] = None) -> PETSc.Vec:
     """Assemble linear form into an existing PETSc vector. The vector is not
-    zeroed before assembly and it is not finalised, qi.e. ghost values are
+    zeroed before assembly and it is not finalised, i.e. ghost values are
     not accumulated on the owning processes.
 
     """
-    with b.localForm() as b_local:
-        cpp.fem.assemble_vector(b_local.array_w, _create_cpp_form(L))
+    _L = _create_cpp_form(L)
+    if restriction is None:
+        with b.localForm() as b_local:
+            cpp.fem.assemble_vector(b_local.array_w, _L)
+    else:
+        with VecSubVectorWrapper(b, _L.function_spaces[0].dofmap, restriction) as b_sub:
+            cpp.fem.assemble_vector(b_sub, _L)
     return b
 
 
 @functools.singledispatch
-def assemble_vector_nest(L: typing.Union[Form, cpp.fem.Form]) -> PETSc.Vec:
+def assemble_vector_nest(L: typing.Union[Form, cpp.fem.Form],
+                         restriction: typing.Optional[typing.List[cpp.fem.DofMapRestriction]] = None) -> PETSc.Vec:
     """Assemble linear forms into a new nested PETSc (VecNest) vector. The
     returned vector is not finalised, i.e. ghost values are not accumulated
     on the owning processes.
 
     """
-    maps = [(form.function_spaces[0].dofmap.index_map, form.function_spaces[0].dofmap.index_map_bs)
-            for form in _create_cpp_form(L)]
-    b = cpp.fem.create_vector_nest(maps)
+    _L = _create_cpp_form(L)
+    b = create_vector_nest(_L, restriction)
     for b_sub in b.getNestSubVecs():
         with b_sub.localForm() as b_local:
             b_local.set(0.0)
-    return assemble_vector_nest(b, L)
+    return assemble_vector_nest(b, _L, restriction)
 
 
 @assemble_vector_nest.register(PETSc.Vec)
-def _(b: PETSc.Vec, L: typing.List[typing.Union[Form, cpp.fem.Form]]) -> PETSc.Vec:
+def _(b: PETSc.Vec,
+      L: typing.List[typing.Union[Form, cpp.fem.Form]],
+      restriction: typing.Optional[typing.List[cpp.fem.DofMapRestriction]] = None) -> PETSc.Vec:
     """Assemble linear forms into a nested PETSc (VecNest) vector. The vector is not
     zeroed before assembly and it is not finalised, i.e. ghost values
     are not accumulated on the owning processes.
 
     """
-    for b_sub, L_sub in zip(b.getNestSubVecs(), _create_cpp_form(L)):
-        with b_sub.localForm() as b_local:
-            cpp.fem.assemble_vector(b_local.array_w, L_sub)
+    _L = _create_cpp_form(L)
+    function_spaces = _get_block_function_spaces(_L)
+    dofmaps = [function_space.dofmap for function_space in function_spaces]
+    with NestVecSubVectorWrapper(b, dofmaps, restriction) as nest_b:
+        for b_sub, L_sub in zip(nest_b, _L):
+            cpp.fem.assemble_vector(b_sub, L_sub)
     return b
 
 
@@ -261,57 +523,58 @@ def assemble_vector_block(L: typing.List[typing.Union[Form, cpp.fem.Form]],
                           a: typing.List[typing.List[typing.Union[Form, cpp.fem.Form]]],
                           bcs: typing.List[DirichletBC] = [],
                           x0: typing.Optional[PETSc.Vec] = None,
-                          scale: float = 1.0) -> PETSc.Vec:
+                          scale: float = 1.0,
+                          restriction: typing.Optional[typing.List[cpp.fem.DofMapRestriction]] = None,
+                          restriction_x0: typing.Optional[typing.List[cpp.fem.DofMapRestriction]] = None) -> PETSc.Vec:
     """Assemble linear forms into a monolithic vector. The vector is not
     finalised, i.e. ghost values are not accumulated.
 
     """
-    maps = [(form.function_spaces[0].dofmap.index_map, form.function_spaces[0].dofmap.index_map_bs)
-            for form in _create_cpp_form(L)]
-    b = cpp.fem.create_vector_block(maps)
+    _L = _create_cpp_form(L)
+    b = create_vector_block(_L, restriction)
     with b.localForm() as b_local:
         b_local.set(0.0)
-    return assemble_vector_block(b, L, a, bcs, x0, scale)
+    return assemble_vector_block(b, _L, a, bcs, x0, scale, restriction, restriction_x0)
 
 
 @assemble_vector_block.register(PETSc.Vec)
 def _(b: PETSc.Vec,
       L: typing.List[typing.Union[Form, cpp.fem.Form]],
-      a,
+      a: typing.List[typing.List[typing.Union[Form, cpp.fem.Form]]],
       bcs: typing.List[DirichletBC] = [],
       x0: typing.Optional[PETSc.Vec] = None,
-      scale: float = 1.0) -> PETSc.Vec:
+      scale: float = 1.0,
+      restriction: typing.Optional[typing.List[cpp.fem.DofMapRestriction]] = None,
+      restriction_x0: typing.Optional[typing.List[cpp.fem.DofMapRestriction]] = None) -> PETSc.Vec:
     """Assemble linear forms into a monolithic vector. The vector is not
     zeroed and it is not finalised, i.e. ghost values are not
     accumulated.
 
     """
-    maps = [(form.function_spaces[0].dofmap.index_map, form.function_spaces[0].dofmap.index_map_bs)
-            for form in _create_cpp_form(L)]
-    if x0 is not None:
-        x0_local = cpp.la.get_local_vectors(x0, maps)
-        x0_sub = x0_local
-    else:
-        x0_local = []
-        x0_sub = [None] * len(maps)
+    _L = _create_cpp_form(L)
+    _a = _create_cpp_form(a)
+    function_spaces = _get_block_function_spaces(_a)
+    dofmaps = [function_space.dofmap for function_space in function_spaces[0]]
+    dofmaps_x0 = [function_space.dofmap for function_space in function_spaces[1]]
 
-    bcs1 = cpp.fem.bcs_cols(_create_cpp_form(a), bcs)
-    b_local = cpp.la.get_local_vectors(b, maps)
-    for b_sub, L_sub, a_sub, bc in zip(b_local, L, a, bcs1):
-        cpp.fem.assemble_vector(b_sub, _create_cpp_form(L_sub))
-        cpp.fem.apply_lifting(b_sub, _create_cpp_form(a_sub), bc, x0_local, scale)
-
-    cpp.la.scatter_local_vectors(b, b_local, maps)
+    bcs1 = cpp.fem.bcs_cols(_a, bcs)
+    with BlockVecSubVectorWrapper(b, dofmaps, restriction) as block_b, \
+            BlockVecSubVectorReadWrapper(x0, dofmaps_x0, restriction_x0) as block_x0:
+        for b_sub, a_sub, L_sub, bcs1_sub in zip(block_b, _a, _L, bcs1):
+            cpp.fem.assemble_vector(b_sub, L_sub)
+            for a_sub_, bcs1_sub_, x0_sub in zip(a_sub, bcs1_sub, block_x0):
+                if x0_sub is None:
+                    x0_sub_list = []
+                else:
+                    x0_sub_list = [x0_sub]
+                cpp.fem.apply_lifting(b_sub, [a_sub_], [bcs1_sub_], x0_sub_list, scale)
     b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
 
-    bcs0 = cpp.fem.bcs_rows(_create_cpp_form(L), bcs)
-    offset = 0
-    b_array = b.getArray(readonly=False)
-    for submap, bc, _x0 in zip(maps, bcs0, x0_sub):
-        size = submap[0].size_local * submap[1]
-        cpp.fem.set_bc(b_array[offset:offset + size], bc, _x0, scale)
-        offset += size
-
+    bcs0 = cpp.fem.bcs_rows(_L, bcs)
+    with BlockVecSubVectorWrapper(b, dofmaps, restriction) as block_b, \
+            BlockVecSubVectorReadWrapper(x0, dofmaps_x0, restriction_x0) as block_x0:
+        for b_sub, bcs0_sub, x0_sub in zip(block_b, bcs0, block_x0):
+            cpp.fem.set_bc(b_sub, bcs0_sub, x0_sub, scale)
     return b
 
 
@@ -649,11 +912,13 @@ def _(A: PETSc.Mat,
 
 # -- Modifiers for Dirichlet conditions ---------------------------------------
 
-def apply_lifting(b: PETSc.Vec,
+def apply_lifting(b: typing.Union[PETSc.Vec],
                   a: typing.List[typing.Union[Form, cpp.fem.Form]],
                   bcs: typing.List[typing.List[DirichletBC]],
-                  x0: typing.Optional[typing.List[PETSc.Vec]] = [],
-                  scale: float = 1.0) -> None:
+                  x0: typing.Optional[typing.List[PETSc.Vec]] = None,
+                  scale: float = 1.0,
+                  restriction: typing.Optional[cpp.fem.DofMapRestriction] = None,
+                  restriction_x0: typing.Optional[typing.List[cpp.fem.DofMapRestriction]] = None) -> None:
     """Modify RHS vector b for lifting of Dirichlet boundary conditions.
     It modifies b such that:
 
@@ -668,55 +933,93 @@ def apply_lifting(b: PETSc.Vec,
     Ghost contributions are not accumulated (not sent to owner). Caller
     is responsible for calling VecGhostUpdateBegin/End.
     """
-    with contextlib.ExitStack() as stack:
-        x0 = [stack.enter_context(x.localForm()) for x in x0]
-        x0_r = [x.array_r for x in x0]
-        b_local = stack.enter_context(b.localForm())
-        cpp.fem.apply_lifting(b_local.array_w, _create_cpp_form(a), bcs, x0_r, scale)
+    _a = _create_cpp_form(a)
+    function_spaces = [form.function_spaces[1] for form in _a]
+    dofmaps_x0 = [function_space.dofmap for function_space in function_spaces]
+    if restriction is None:
+        with b.localForm() as b_local, NestVecSubVectorReadWrapper(x0, dofmaps_x0) as nest_x0:
+            if x0 is None:
+                x0 = []
+            else:
+                x0 = [x0_ for x0_ in nest_x0]
+            cpp.fem.apply_lifting(b_local.array_w, _a, bcs, x0, scale)
+    else:
+        with VecSubVectorWrapper(b, restriction.dofmap, restriction) as b_sub, \
+                NestVecSubVectorReadWrapper(x0, dofmaps_x0, restriction_x0) as nest_x0:
+            for a_sub, bcs_sub, x0_sub in zip(_a, bcs, nest_x0):
+                if x0_sub is None:
+                    x0_sub_list = []
+                else:
+                    x0_sub_list = [x0_sub]
+                cpp.fem.apply_lifting(b_sub, [a_sub], [bcs_sub], x0_sub_list, scale)
 
 
 def apply_lifting_nest(b: PETSc.Vec,
                        a: typing.List[typing.List[typing.Union[Form, cpp.fem.Form]]],
                        bcs: typing.List[DirichletBC],
                        x0: typing.Optional[PETSc.Vec] = None,
-                       scale: float = 1.0) -> PETSc.Vec:
+                       scale: float = 1.0,
+                       restriction: typing.Optional[typing.List[cpp.fem.DofMapRestriction]] = None,
+                       restriction_x0: typing.Optional[typing.List[cpp.fem.DofMapRestriction]] = None) -> PETSc.Vec:
     """Modify nested vector for lifting of Dirichlet boundary conditions.
 
     """
-    x0 = [] if x0 is None else x0.getNestSubVecs()
     _a = _create_cpp_form(a)
+    function_spaces = _get_block_function_spaces(_a)
+    dofmaps = [function_space.dofmap for function_space in function_spaces[0]]
+    dofmaps_x0 = [function_space.dofmap for function_space in function_spaces[1]]
     bcs1 = cpp.fem.bcs_cols(_a, bcs)
-    for b_sub, a_sub, bc1 in zip(b.getNestSubVecs(), _a, bcs1):
-        apply_lifting(b_sub, a_sub, bc1, x0, scale)
+    with NestVecSubVectorWrapper(b, dofmaps, restriction) as nest_b, \
+            NestVecSubVectorReadWrapper(x0, dofmaps_x0, restriction_x0) as nest_x0:
+        for b_sub, a_sub, bcs1_sub in zip(nest_b, _a, bcs1):
+            for a_sub_, bcs1_sub_, x0_sub in zip(a_sub, bcs1_sub, nest_x0):
+                if x0_sub is None:
+                    x0_sub_list = []
+                else:
+                    x0_sub_list = [x0_sub]
+                cpp.fem.apply_lifting(b_sub, [a_sub_], [bcs1_sub_], x0_sub_list, scale)
     return b
 
 
-def set_bc(b: PETSc.Vec,
+def set_bc(b: typing.Union[PETSc.Vec],
            bcs: typing.List[DirichletBC],
            x0: typing.Optional[PETSc.Vec] = None,
-           scale: float = 1.0) -> None:
+           scale: float = 1.0,
+           restriction: typing.Optional[cpp.fem.DofMapRestriction] = None) -> None:
     """Insert boundary condition values into vector. Only local (owned)
     entries are set, hence communication after calling this function is
     not required unless ghost entries need to be updated to the boundary
     condition value.
 
     """
-    if x0 is not None:
-        x0 = x0.array_r
-    cpp.fem.set_bc(b.array_w, bcs, x0, scale)
+    if restriction is None:
+        if x0 is not None:
+            x0 = x0.array_r
+        cpp.fem.set_bc(b.array_w, bcs, x0, scale)
+    else:
+        with VecSubVectorWrapper(b, restriction.dofmap, restriction, ghosted=False) as b_sub, \
+                VecSubVectorReadWrapper(x0, restriction.dofmap, restriction, ghosted=False) as x0_sub:
+            cpp.fem.set_bc(b_sub, bcs, x0_sub, scale)
 
 
 def set_bc_nest(b: PETSc.Vec,
                 bcs: typing.List[typing.List[DirichletBC]],
                 x0: typing.Optional[PETSc.Vec] = None,
-                scale: float = 1.0) -> None:
+                scale: float = 1.0,
+                restriction: typing.Optional[typing.List[cpp.fem.DofMapRestriction]] = None) -> None:
     """Insert boundary condition values into nested vector. Only local (owned)
     entries are set, hence communication after calling this function is
     not required unless the ghost entries need to be updated to the
     boundary condition value.
 
     """
-    _b = b.getNestSubVecs()
-    x0 = len(_b) * [None] if x0 is None else x0.getNestSubVecs()
-    for b_sub, bc, x_sub in zip(_b, bcs, x0):
-        set_bc(b_sub, bc, x_sub, scale)
+    if restriction is None:
+        dofmaps = [None] * len(b.getNestSubVecs())
+    else:
+        dofmaps = [restriction_.dofmap for restriction_ in restriction]
+    dofmaps_x0 = dofmaps
+    restriction_x0 = restriction
+    with NestVecSubVectorWrapper(b, dofmaps, restriction, ghosted=False) as nest_b, \
+            NestVecSubVectorReadWrapper(x0, dofmaps_x0, restriction_x0, ghosted=False) as nest_x0:
+        for b_sub, bcs_sub, x0_sub in zip(nest_b, bcs, nest_x0):
+            cpp.fem.set_bc(b_sub, bcs_sub, x0_sub, scale)

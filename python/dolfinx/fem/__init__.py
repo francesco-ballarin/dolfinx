@@ -13,10 +13,13 @@ from dolfinx.fem.assemble import (apply_lifting, apply_lifting_nest,
                                   assemble_vector, assemble_vector_block,
                                   assemble_vector_nest, create_matrix,
                                   BlockMatSubMatrixWrapper,
+                                  BlockVecSubVectorReadWrapper, BlockVecSubVectorWrapper,
                                   create_matrix_block, create_matrix_nest,
                                   create_vector, create_vector_block,
                                   create_vector_nest, set_bc, set_bc_nest,
-                                  MatSubMatrixWrapper, NestMatSubMatrixWrapper)
+                                  NestVecSubVectorReadWrapper, NestVecSubVectorWrapper,
+                                  MatSubMatrixWrapper, NestMatSubMatrixWrapper,
+                                  VecSubVectorReadWrapper, VecSubVectorWrapper)
 from dolfinx.fem.dirichletbc import (DirichletBC, locate_dofs_geometrical,
                                      locate_dofs_topological)
 from dolfinx.fem.dofmap import DofMap
@@ -38,6 +41,9 @@ __all__ = [
     "assemble_vector_block", "assemble_vector_nest",
     "assemble_matrix_block", "assemble_matrix_nest",
     "assemble_matrix", "set_bc", "set_bc_nest",
+    "VecSubVectorReadWrapper", "VecSubVectorWrapper",
+    "BlockVecSubVectorReadWrapper", "BlockVecSubVectorWrapper",
+    "NestVecSubVectorReadWrapper", "NestVecSubVectorWrapper",
     "MatSubMatrixWrapper", "BlockMatSubMatrixWrapper", "NestMatSubMatrixWrapper",
     "DirichletBC", "DofMap", "DofMapRestriction", "Form", "IntegralType",
     "adjoint", "LinearProblem", "locate_dofs_geometrical", "locate_dofs_topological",
