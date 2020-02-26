@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2019 Johan Hake, Jan Blechta and Garth N. Wells
+// Copyright (C) 2013-2020 Johan Hake, Jan Blechta and Garth N. Wells
 //
 // This file is part of DOLFINx (https://www.fenicsproject.org)
 //
@@ -28,51 +28,6 @@
 
 using namespace dolfinx;
 
-//-----------------------------------------------------------------------------
-la::SparsityPattern fem::create_sparsity_pattern(
-    const mesh::Topology& topology,
-    const std::array<const std::reference_wrapper<const fem::DofMap>, 2>&
-        dofmaps,
-    const std::set<IntegralType>& integrals)
-{
-  common::Timer t0("Build sparsity");
-
-  // Get common::IndexMaps for each dimension
-  const std::array index_maps{dofmaps[0].get().index_map,
-                              dofmaps[1].get().index_map};
-  const std::array bs
-      = {dofmaps[0].get().index_map_bs(), dofmaps[1].get().index_map_bs()};
-
-  // Create and build sparsity pattern
-  assert(dofmaps[0].get().index_map);
-  la::SparsityPattern pattern(
-      dofmaps[0].get().index_map->comm(common::IndexMap::Direction::forward),
-      index_maps, bs);
-  for (auto type : integrals)
-  {
-    switch (type)
-    {
-    case fem::IntegralType::cell:
-      sparsitybuild::cells(pattern, topology,
-                           {{&dofmaps[0].get().list(), &dofmaps[1].get().list()}});
-      break;
-    case fem::IntegralType::interior_facet:
-      sparsitybuild::interior_facets(pattern, topology,
-                                     {{&dofmaps[0].get().list(), &dofmaps[1].get().list()}});
-      break;
-    case fem::IntegralType::exterior_facet:
-      sparsitybuild::exterior_facets(pattern, topology,
-                                     {{&dofmaps[0].get().list(), &dofmaps[1].get().list()}});
-      break;
-    default:
-      throw std::runtime_error("Unsupported integral type");
-    }
-  }
-
-  t0.stop();
-
-  return pattern;
-}
 //-----------------------------------------------------------------------------
 fem::ElementDofLayout
 fem::create_element_dof_layout(const ufc_dofmap& dofmap,

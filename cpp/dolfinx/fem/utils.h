@@ -43,69 +43,6 @@ template <typename T>
 class Function;
 class FunctionSpace;
 
-/// Extract test (0) and trial (1) function spaces pairs for each
-/// bilinear form for a rectangular array of forms
-///
-/// @param[in] a A rectangular block on bilinear forms
-/// @return Rectangular array of the same shape as @p a with a pair of
-///   function spaces in each array entry. If a form is null, then the
-///   returned function space pair is (null, null).
-template <typename T>
-std::vector<
-    std::vector<std::array<std::shared_ptr<const fem::FunctionSpace>, 2>>>
-extract_function_spaces(const std::vector<std::vector<const fem::Form<T>*>>& a)
-{
-  std::vector<
-      std::vector<std::array<std::shared_ptr<const fem::FunctionSpace>, 2>>>
-      spaces(
-          a.size(),
-          std::vector<std::array<std::shared_ptr<const fem::FunctionSpace>, 2>>(
-              a[0].size()));
-  for (std::size_t i = 0; i < a.size(); ++i)
-  {
-    for (std::size_t j = 0; j < a[i].size(); ++j)
-    {
-      if (const fem::Form<T>* form = a[i][j]; form)
-        spaces[i][j] = {form->function_spaces()[0], form->function_spaces()[1]};
-    }
-  }
-  return spaces;
-}
-
-/// Create a sparsity pattern for a given form. The pattern is not
-/// finalised, i.e. the caller is responsible for calling
-/// SparsityPattern::assemble.
-/// @param[in] a A bilinear form
-/// @return The corresponding sparsity pattern
-template <typename T>
-la::SparsityPattern create_sparsity_pattern(const Form<T>& a)
-{
-  if (a.rank() != 2)
-  {
-    throw std::runtime_error(
-        "Cannot create sparsity pattern. Form is not a bilinear form");
-  }
-
-  // Get dof maps and mesh
-  std::array<const std::reference_wrapper<const fem::DofMap>, 2> dofmaps{
-      *a.function_spaces().at(0)->dofmap(),
-      *a.function_spaces().at(1)->dofmap()};
-  std::shared_ptr mesh = a.mesh();
-  assert(mesh);
-
-  const std::set<IntegralType> types = a.integral_types();
-  if (types.find(IntegralType::interior_facet) != types.end()
-      or types.find(IntegralType::exterior_facet) != types.end())
-  {
-    // FIXME: cleanup these calls? Some of the happen internally again.
-    const int tdim = mesh->topology().dim();
-    mesh->topology_mutable().create_entities(tdim - 1);
-    mesh->topology_mutable().create_connectivity(tdim - 1, tdim);
-  }
-
-  return create_sparsity_pattern(mesh->topology(), dofmaps, types);
-}
-
 /// Create a sparsity pattern for a given form. The pattern is not
 /// finalised, i.e. the caller is responsible for calling
 /// SparsityPattern::assemble.
