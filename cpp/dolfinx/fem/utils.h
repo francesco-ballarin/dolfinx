@@ -149,18 +149,14 @@ extract_function_spaces(const std::vector<std::vector<const Form<T, U>*>>& a)
 /// @param[in] a A bilinear form
 /// @return The corresponding sparsity pattern
 template <dolfinx::scalar T, std::floating_point U>
-la::SparsityPattern create_sparsity_pattern(const Form<T, U>& a)
+la::SparsityPattern _create_sparsity_pattern(const Form<T, U>& a)
 {
-  if (a.rank() != 2)
-  {
-    throw std::runtime_error(
-        "Cannot create sparsity pattern. Form is not a bilinear.");
-  }
-
-  // Get dof maps and mesh
   std::array<std::reference_wrapper<const DofMap>, 2> dofmaps{
-      *a.function_spaces().at(0)->dofmap(),
-      *a.function_spaces().at(1)->dofmap()};
+      *a.function_spaces().at(0)->dofmap(), *a.function_spaces().at(1)->dofmap()};
+  const std::array<std::reference_wrapper<const common::IndexMap>, 2> index_maps{
+    *dofmaps[0].get().index_map, *dofmaps[1].get().index_map};
+  const std::array<int, 2> index_maps_bs{
+    dofmaps[0].get().index_map_bs(), dofmaps[1].get().index_map_bs()};
   std::array dofmaps_map{dofmaps[0].get().map(), dofmaps[1].get().map()};
   std::array<std::span<const std::int32_t>, 2> dofmaps_list{
     std::span<const std::int32_t>(dofmaps_map[0].data_handle(), dofmaps_map[0].size()),
@@ -177,17 +173,41 @@ la::SparsityPattern create_sparsity_pattern(const Form<T, U>& a)
   std::array<std::span<const std::size_t>, 2> dofmaps_bounds{
     std::span<const std::size_t>(dofmaps_bounds_writable[0].data(), dofmaps_bounds_writable[0].size()),
     std::span<const std::size_t>(dofmaps_bounds_writable[1].data(), dofmaps_bounds_writable[1].size())};
+  return create_sparsity_pattern(a, index_maps, index_maps_bs, dofmaps_list, dofmaps_bounds);
+}
+
+/// @brief Create a sparsity pattern for a given form.
+/// @note The pattern is not finalised, i.e. the caller is responsible
+/// for calling SparsityPattern::assemble.
+/// @param[in] a A bilinear form
+/// @param[in] index_maps A pair of index maps. Row index map is given by index_maps[0], column index map is given
+/// by index_maps[1].
+/// @param[in] index_maps_bs A pair of int, representing the block size of index_maps.
+/// @param[in] dofmaps_list An array of spans containing the dofmaps list. Row dofmap is given by dofmaps[0], while
+/// column dofmap is given by dofmaps[1].
+/// @param[in] dofmaps_bounds An array of spans containing the dofmaps cell bounds.
+/// @return The corresponding sparsity pattern
+template <typename T, std::floating_point U>
+la::SparsityPattern create_sparsity_pattern(
+  const Form<T, U>& a,
+  std::array<std::reference_wrapper<const common::IndexMap>, 2> index_maps,
+  const std::array<int, 2> index_maps_bs,
+  std::array<std::span<const std::int32_t>, 2> dofmaps_list,
+  std::array<std::span<const std::size_t>, 2> dofmaps_bounds)
+{
+  if (a.rank() != 2)
+  {
+    throw std::runtime_error(
+        "Cannot create sparsity pattern. Form is not a bilinear.");
+  }
+
+  // Get mesh
   std::shared_ptr mesh = a.mesh();
   assert(mesh);
 
-  std::shared_ptr mesh0 = a.function_spaces().at(0)->mesh();
-  assert(mesh0);
-  std::shared_ptr mesh1 = a.function_spaces().at(1)->mesh();
-  assert(mesh1);
-
-  const std::set<IntegralType> types = a.integral_types();
-  if (types.find(IntegralType::interior_facet) != types.end()
-      or types.find(IntegralType::exterior_facet) != types.end())
+  const std::set<IntegralType> integral_types = a.integral_types();
+  if (integral_types.find(IntegralType::interior_facet) != integral_types.end()
+      or integral_types.find(IntegralType::exterior_facet) != integral_types.end())
   {
     // FIXME: cleanup these calls? Some of the happen internally again.
     int tdim = mesh->topology()->dim();
@@ -197,39 +217,26 @@ la::SparsityPattern create_sparsity_pattern(const Form<T, U>& a)
 
   common::Timer t0("Build sparsity");
 
-  // Get common::IndexMaps for each dimension
-  const std::array index_maps{dofmaps[0].get().index_map,
-                              dofmaps[1].get().index_map};
-  const std::array bs
-      = {dofmaps[0].get().index_map_bs(), dofmaps[1].get().index_map_bs()};
-
-  auto extract_cells = [](std::span<const std::int32_t> facets)
-  {
-    assert(facets.size() % 2 == 0);
-    std::vector<std::int32_t> cells;
-    cells.reserve(facets.size() / 2);
-    for (std::size_t i = 0; i < facets.size(); i += 2)
-      cells.push_back(facets[i]);
-    return cells;
-  };
-
   // Create and build sparsity pattern
-  la::SparsityPattern pattern(mesh->comm(), index_maps, bs);
-  for (auto type : types)
+  const std::array<std::shared_ptr<const common::IndexMap>, 2> index_maps_shared_ptr
+    {{std::shared_ptr<const common::IndexMap>(&index_maps[0].get(), [](const common::IndexMap*){}),
+      std::shared_ptr<const common::IndexMap>(&index_maps[1].get(), [](const common::IndexMap*){})}};
+  la::SparsityPattern pattern(mesh->comm(), index_maps_shared_ptr, index_maps_bs);
+  for (auto integral_type : integral_types)
   {
-    std::vector<int> ids = a.integral_ids(type);
-    switch (type)
+    std::vector<int> ids = a.integral_ids(integral_type);
+    switch (integral_type)
     {
     case IntegralType::cell:
       for (int id : ids)
       {
-        sparsitybuild::cells(pattern, a.domain(type, id), dofmaps_list, dofmaps_bounds);
+        sparsitybuild::cells(pattern, a.domain(integral_type, id), dofmaps_list, dofmaps_bounds);
       }
       break;
     case IntegralType::interior_facet:
       for (int id : ids)
       {
-        std::span<const std::int32_t> facets = a.domain(type, id);
+        std::span<const std::int32_t> facets = a.domain(integral_type, id);
         std::vector<std::int32_t> f;
         f.reserve(facets.size() / 2);
         for (std::size_t i = 0; i < facets.size(); i += 4)
@@ -240,7 +247,7 @@ la::SparsityPattern create_sparsity_pattern(const Form<T, U>& a)
     case IntegralType::exterior_facet:
       for (int id : ids)
       {
-        std::span<const std::int32_t> facets = a.domain(type, id);
+        std::span<const std::int32_t> facets = a.domain(integral_type, id);
         std::vector<std::int32_t> cells;
         cells.reserve(facets.size() / 2);
         for (std::size_t i = 0; i < facets.size(); i += 2)
