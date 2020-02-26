@@ -5,6 +5,10 @@ import pytest
 from mpi4py import MPI
 
 
+def pytest_configure(config):
+    config.addinivalue_line("markers", "optional: Optional tests.")
+
+
 def pytest_runtest_teardown(item):
     """Collect garbage after every test to force calling
     destructors which might be collective"""
