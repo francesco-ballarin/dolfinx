@@ -1,4 +1,5 @@
-// Copyright (C) 2017-2019 Chris Richardson and Garth N. Wells
+// Copyright (C) 2017-2020 Chris Richardson, Garth N. Wells and
+// Francesco Ballarin
 //
 // This file is part of DOLFINx (https://www.fenicsproject.org)
 //
@@ -61,9 +62,6 @@ void fem(py::module& m)
         py::return_value_policy::take_ownership,
         "Create nested vector for multiple (stacked) linear forms.");
 
-  m.def("create_sparsity_pattern",
-        &dolfinx::fem::create_sparsity_pattern<PetscScalar>,
-        "Create a sparsity pattern for bilinear form.");
   m.def(
       "pack_coefficients",
       [](dolfinx::fem::Form<PetscScalar>& form)
@@ -84,17 +82,48 @@ void fem(py::module& m)
       [](const dolfinx::fem::Expression<PetscScalar>& expression)
       { return as_pyarray(dolfinx::fem::pack_constants(expression)); },
       "Pack constants for an Expression.");
-  m.def("create_matrix", dolfinx::fem::create_matrix,
-        py::return_value_policy::take_ownership, py::arg("a"),
-        py::arg("type") = std::string(),
+  m.def("create_matrix",
+        [](const dolfinx::mesh::Mesh& mesh,
+           std::array<std::reference_wrapper<const dolfinx::common::IndexMap>, 2> index_maps,
+           const std::array<int, 2> index_maps_bs,
+           const std::set<dolfinx::fem::IntegralType> & integral_types,
+           std::array<const dolfinx::graph::AdjacencyList<std::int32_t>*, 2> dofmaps,
+           const std::string& matrix_type) {
+          return dolfinx::fem::create_matrix(
+                   mesh, index_maps, index_maps_bs, integral_types, dofmaps, matrix_type);
+        },
+        py::return_value_policy::take_ownership,
+        py::arg("mesh"), py::arg("index_maps"), py::arg("index_maps_bs"),
+        py::arg("integral_types"), py::arg("dofmaps"), py::arg("matrix_type") = std::string(),
         "Create a PETSc Mat for bilinear form.");
-  m.def("create_matrix_block", &dolfinx::fem::create_matrix_block,
-        py::return_value_policy::take_ownership, py::arg("a"),
-        py::arg("type") = std::string(),
+  m.def("create_matrix_block",
+        [](const dolfinx::mesh::Mesh& mesh,
+           std::array<std::vector<std::reference_wrapper<const dolfinx::common::IndexMap>>, 2> index_maps,
+           const std::array<std::vector<int>, 2> index_maps_bs,
+           const std::vector<std::vector<std::set<dolfinx::fem::IntegralType>>>& integral_types,
+           const std::array<std::vector<const dolfinx::graph::AdjacencyList<std::int32_t>*>, 2>& dofmaps,
+           const std::string& matrix_type) {
+          return dolfinx::fem::create_matrix_block(
+                   mesh, index_maps, index_maps_bs,integral_types, dofmaps, matrix_type);
+        },
+        py::return_value_policy::take_ownership,
+        py::arg("mesh"), py::arg("index_maps"), py::arg("index_maps_bs"),
+        py::arg("integral_types"), py::arg("dofmaps"), py::arg("matrix_type") = std::string(),
         "Create monolithic sparse matrix for stacked bilinear forms.");
-  m.def("create_matrix_nest", &dolfinx::fem::create_matrix_nest,
-        py::return_value_policy::take_ownership, py::arg("a"),
-        py::arg("types") = std::vector<std::vector<std::string>>(),
+  m.def("create_matrix_nest",
+        [](const dolfinx::mesh::Mesh& mesh,
+           std::array<std::vector<std::reference_wrapper<const dolfinx::common::IndexMap>>, 2> index_maps,
+           const std::array<std::vector<int>, 2> index_maps_bs,
+           const std::vector<std::vector<std::set<dolfinx::fem::IntegralType>>>& integral_types,
+           const std::array<std::vector<const dolfinx::graph::AdjacencyList<std::int32_t>*>, 2>& dofmaps,
+           const std::vector<std::vector<std::string>>& matrix_types) {
+          return dolfinx::fem::create_matrix_nest(
+                   mesh, index_maps, index_maps_bs, integral_types, dofmaps, matrix_types);
+        },
+        py::return_value_policy::take_ownership,
+        py::arg("mesh"), py::arg("index_maps"), py::arg("index_maps_bs"),
+        py::arg("integral_types"), py::arg("dofmaps"),
+        py::arg("matrix_types") = std::vector<std::vector<std::string>>(),
         "Create nested sparse matrix for bilinear forms.");
   m.def(
       "create_element_dof_layout",
