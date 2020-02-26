@@ -104,7 +104,7 @@ def create_matrix(a: Form, block_mode: typing.Optional[la.BlockMode] = None) -> 
     Returns:
         Assembled sparse matrix.
     """
-    sp = dolfinx.fem.create_sparsity_pattern(a)
+    sp = dolfinx.fem._create_sparsity_pattern(a)
     sp.finalize()
     if block_mode is not None:
         return la.matrix_csr(sp, block_mode=block_mode, dtype=a.dtype)

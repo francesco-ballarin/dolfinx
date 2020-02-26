@@ -11,7 +11,7 @@ import numpy.typing as npt
 from dolfinx.cpp.fem import IntegralType, transpose_dofmap
 from dolfinx.cpp.fem import compute_integration_domains as _compute_integration_domains
 from dolfinx.cpp.fem import create_interpolation_data as _create_interpolation_data
-from dolfinx.cpp.fem import create_sparsity_pattern as _create_sparsity_pattern
+from dolfinx.cpp.fem import _create_sparsity_pattern as _create_sparsity_pattern_cpp
 from dolfinx.cpp.fem import discrete_curl as _discrete_curl
 from dolfinx.cpp.fem import discrete_gradient as _discrete_gradient
 from dolfinx.cpp.fem import interpolation_matrix as _interpolation_matrix
@@ -54,7 +54,7 @@ from dolfinx.geometry import PointOwnershipData as _PointOwnershipData
 from dolfinx.la import MatrixCSR as _MatrixCSR
 
 
-def create_sparsity_pattern(a: Form):
+def _create_sparsity_pattern(a: Form):
     """Create a sparsity pattern from a bilinear form.
 
     Args:
@@ -67,7 +67,7 @@ def create_sparsity_pattern(a: Form):
         The pattern is not finalised, i.e. the caller is responsible for
         calling ``assemble`` on the sparsity pattern.
     """
-    return _create_sparsity_pattern(a._cpp_object)
+    return _create_sparsity_pattern_cpp(a._cpp_object)
 
 
 def create_interpolation_data(
@@ -208,7 +208,7 @@ __all__ = [
     "create_form",
     "create_interpolation_data",
     "create_matrix",
-    "create_sparsity_pattern",
+    "_create_sparsity_pattern",
     "create_vector",
     "dirichletbc",
     "discrete_gradient",

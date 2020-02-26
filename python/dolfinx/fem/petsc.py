@@ -69,34 +69,35 @@ __all__ = [
 ]
 
 
-def _extract_function_spaces(a: list[list[Form]]):
-    """From a rectangular array of bilinear forms, extract the function
-    spaces for each block row and block column.
-    """
-    assert len({len(cols) for cols in a}) == 1, "Array of function spaces is not rectangular"
-
-    # Extract (V0, V1) pair for each block in 'a'
-    def fn(form):
-        return form.function_spaces if form is not None else None
-
-    from functools import partial
-
-    Vblock: typing.Iterable = map(partial(map, fn), a)
-
-    # Compute spaces for each row/column block
-    rows: list[set] = [set() for i in range(len(a))]
-    cols: list[set] = [set() for i in range(len(a[0]))]
-    for i, Vrow in enumerate(Vblock):
-        for j, V in enumerate(Vrow):
-            if V is not None:
-                rows[i].add(V[0])
-                cols[j].add(V[1])
-
-    rows = [e for row in rows for e in row]
-    cols = [e for col in cols for e in col]
-    assert len(rows) == len(a)
-    assert len(cols) == len(a[0])
-    return rows, cols
+def _get_block_function_spaces(a):
+    rows = len(a)
+    cols = len(a[0])
+    assert all(len(a_i) == cols for a_i in a)
+    assert all(a[i][j] is None or a[i][j].rank == 2 for i in range(rows) for j in range(cols))
+    function_spaces_0 = list()
+    for i in range(rows):
+        function_spaces_0_i = None
+        for j in range(cols):
+            if a[i][j] is not None:
+                function_spaces_0_i = a[i][j].function_spaces[0]
+                break
+        assert function_spaces_0_i is not None
+        function_spaces_0.append(function_spaces_0_i)
+    function_spaces_1 = list()
+    for j in range(cols):
+        function_spaces_1_j = None
+        for i in range(rows):
+            if a[i][j] is not None:
+                function_spaces_1_j = a[i][j].function_spaces[1]
+                break
+        assert function_spaces_1_j is not None
+        function_spaces_1.append(function_spaces_1_j)
+    function_spaces = [function_spaces_0, function_spaces_1]
+    assert all(a[i][j] is None or a[i][j].function_spaces[0] == function_spaces[0][i]
+               for i in range(rows) for j in range(cols))
+    assert all(a[i][j] is None or a[i][j].function_spaces[1] == function_spaces[1][j]
+               for i in range(rows) for j in range(cols))
+    return function_spaces
 
 
 # -- Vector instantiation ----------------------------------------------------
@@ -183,13 +184,61 @@ def create_matrix(a: Form, mat_type=None) -> PETSc.Mat:
     Returns:
         A PETSc matrix with a layout that is compatible with ``a``.
     """
-    if mat_type is None:
-        return _cpp.fem.petsc.create_matrix(a._cpp_object)
+    assert a.rank == 2
+    function_spaces = a.function_spaces
+    assert all(function_space.mesh == a.mesh for function_space in function_spaces)
+    dofmaps = [function_space.dofmap for function_space in function_spaces]
+    index_maps = [dofmap.index_map for dofmap in dofmaps]
+    index_maps_bs = [dofmap.index_map_bs for dofmap in dofmaps]
+    dofmaps_list = [dofmap.map() for dofmap in dofmaps]
+    dofmaps_bounds = [
+        np.arange(dofmap_list.shape[0] + 1, dtype=np.uint64) * dofmap_list.shape[1] for dofmap_list in dofmaps_list]
+    if mat_type is not None:
+        return _cpp.fem.petsc.create_matrix(
+            a._cpp_object, index_maps, index_maps_bs, dofmaps_list, dofmaps_bounds, mat_type)
     else:
-        return _cpp.fem.petsc.create_matrix(a._cpp_object, mat_type)
+        return _cpp.fem.petsc.create_matrix(
+            a._cpp_object, index_maps, index_maps_bs, dofmaps_list, dofmaps_bounds)
 
 
-def create_matrix_block(a: list[list[Form]]) -> PETSc.Mat:
+def _create_matrix_block_or_nest(a, mat_type, cpp_create_function):
+    function_spaces = _get_block_function_spaces(a)
+    rows, cols = len(function_spaces[0]), len(function_spaces[1])
+    mesh = None
+    for j in range(cols):
+        for i in range(rows):
+            if a[i][j] is not None:
+                mesh = a[i][j].mesh
+                break
+    assert mesh is not None
+    assert all(a[i][j] is None or a[i][j].mesh == mesh for i in range(rows) for j in range(cols))
+    assert all(function_space.mesh == mesh for function_space in function_spaces[0])
+    assert all(function_space.mesh == mesh for function_space in function_spaces[1])
+    dofmaps = (
+        [function_spaces[0][i].dofmap for i in range(rows)],
+        [function_spaces[1][j].dofmap for j in range(cols)])
+    index_maps = (
+        [dofmaps[0][i].index_map for i in range(rows)],
+        [dofmaps[1][j].index_map for j in range(cols)])
+    index_maps_bs = (
+        [dofmaps[0][i].index_map_bs for i in range(rows)],
+        [dofmaps[1][j].index_map_bs for j in range(cols)])
+    dofmaps_list = (
+        [dofmaps[0][i].map() for i in range(rows)],
+        [dofmaps[1][j].map() for j in range(cols)])
+    dofmaps_bounds = (
+        [np.arange(dofmaps_list[0][i].shape[0] + 1, dtype=np.uint64) * dofmaps_list[0][i].shape[1]
+         for i in range(rows)],
+        [np.arange(dofmaps_list[1][j].shape[0] + 1, dtype=np.uint64) * dofmaps_list[1][j].shape[1]
+         for j in range(cols)])
+    a_cpp = [[None if form is None else form._cpp_object for form in forms] for forms in a]
+    if mat_type is not None:
+        return cpp_create_function(a_cpp, index_maps, index_maps_bs, dofmaps_list, dofmaps_bounds, mat_type)
+    else:
+        return cpp_create_function(a_cpp, index_maps, index_maps_bs, dofmaps_list, dofmaps_bounds)
+
+
+def create_matrix_block(a: typing.List[typing.List[Form]], mat_type: str = None) -> PETSc.Mat:
     """Create a PETSc matrix that is compatible with a rectangular array of bilinear forms.
 
     Note:
@@ -207,12 +256,11 @@ def create_matrix_block(a: list[list[Form]]) -> PETSc.Mat:
         A PETSc matrix with a blocked layout that is compatible with
         ``a``.
     """
-    _a = [[None if form is None else form._cpp_object for form in arow] for arow in a]
-    return _cpp.fem.petsc.create_matrix_block(_a)
+    return _create_matrix_block_or_nest(a, mat_type, _cpp.fem.petsc.create_matrix_block)
 
 
-def create_matrix_nest(a: list[list[Form]]) -> PETSc.Mat:
-    """Create a PETSc matrix (``MatNest``) that is compatible with an array of bilinear forms.
+def create_matrix_nest(a: typing.List[typing.List[Form]], mat_types: typing.List[str] = None) -> PETSc.Mat:
+    """Create a PETSc matrix (``MatNest``) that is compatible with a rectangular array of bilinear forms.
 
     Note:
         Due to subtle issues in the interaction between petsc4py memory
@@ -228,8 +276,7 @@ def create_matrix_nest(a: list[list[Form]]) -> PETSc.Mat:
     Returns:
         A PETSc matrix (``MatNest``) that is compatible with ``a``.
     """
-    _a = [[None if form is None else form._cpp_object for form in arow] for arow in a]
-    return _cpp.fem.petsc.create_matrix_nest(_a)
+    return _create_matrix_block_or_nest(a, mat_types, _cpp.fem.petsc.create_matrix_nest)
 
 
 # -- Vector assembly ---------------------------------------------------------
@@ -486,7 +533,7 @@ def assemble_matrix(
     Returns:
         Matrix representing the bilinear form.
     """
-    A = _cpp.fem.petsc.create_matrix(a._cpp_object)
+    A = create_matrix(a)
     assemble_matrix_mat(A, a, bcs, diagonal, constants, coeffs)
     return A
 
@@ -550,8 +597,7 @@ def assemble_matrix_nest(
         PETSc matrix (``MatNest``) representing the block of bilinear
         forms.
     """
-    _a = [[None if form is None else form._cpp_object for form in arow] for arow in a]
-    A = _cpp.fem.petsc.create_matrix_nest(_a, mat_types)
+    A = create_matrix_nest(a, mat_types)
     _assemble_matrix_nest_mat(A, a, bcs, diagonal, constants, coeffs)
     return A
 
@@ -633,8 +679,7 @@ def assemble_matrix_block(
         ``PETSc.Mat.destroy()`` is collective over the object's MPI
         communicator.
     """
-    _a = [[None if form is None else form._cpp_object for form in arow] for arow in a]
-    A = _cpp.fem.petsc.create_matrix_block(_a)
+    A = create_matrix_block(a)
     return _assemble_matrix_block_mat(A, a, bcs, diagonal, constants, coeffs)
 
 
@@ -670,13 +715,9 @@ def _assemble_matrix_block_mat(
         else coeffs
     )
 
-    V = _extract_function_spaces(a)
-    is_rows = _cpp.la.petsc.create_index_sets(
-        [(Vsub.dofmap.index_map, Vsub.dofmap.index_map_bs) for Vsub in V[0]]
-    )
-    is_cols = _cpp.la.petsc.create_index_sets(
-        [(Vsub.dofmap.index_map, Vsub.dofmap.index_map_bs) for Vsub in V[1]]
-    )
+    V = _get_block_function_spaces(a)
+    is_rows = _cpp.la.petsc.create_index_sets([(Vsub.dofmap.index_map, Vsub.dofmap.index_map_bs) for Vsub in V[0]])
+    is_cols = _cpp.la.petsc.create_index_sets([(Vsub.dofmap.index_map, Vsub.dofmap.index_map_bs) for Vsub in V[1]])
 
     # Assemble form
     _bcs = [bc._cpp_object for bc in bcs]
