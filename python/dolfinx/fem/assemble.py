@@ -30,6 +30,37 @@ def _create_cpp_form(form):
     return form
 
 
+def _get_block_function_spaces(_a):
+    rows = len(_a)
+    cols = len(_a[0])
+    assert all(len(a_i) == cols for a_i in _a)
+    assert all(_a[i][j] is None or _a[i][j].rank == 2 for i in range(rows) for j in range(cols))
+    function_spaces_0 = list()
+    for i in range(rows):
+        function_spaces_0_i = None
+        for j in range(cols):
+            if _a[i][j] is not None:
+                function_spaces_0_i = _a[i][j].function_spaces[0]
+                break
+        assert function_spaces_0_i is not None
+        function_spaces_0.append(function_spaces_0_i)
+    function_spaces_1 = list()
+    for j in range(cols):
+        function_spaces_1_j = None
+        for i in range(rows):
+            if _a[i][j] is not None:
+                function_spaces_1_j = _a[i][j].function_spaces[1]
+                break
+        assert function_spaces_1_j is not None
+        function_spaces_1.append(function_spaces_1_j)
+    function_spaces = [function_spaces_0, function_spaces_1]
+    assert all(_a[i][j] is None or _a[i][j].function_spaces[0] == function_spaces[0][i]
+               for i in range(rows) for j in range(cols))
+    assert all(_a[i][j] is None or _a[i][j].function_spaces[1] == function_spaces[1][j]
+               for i in range(rows) for j in range(cols))
+    return function_spaces
+
+
 # -- Vector instantiation ----------------------------------------------------
 
 
@@ -54,18 +85,60 @@ def create_vector_nest(L: typing.List[typing.Union[Form, cpp.fem.Form]]) -> PETS
 
 
 def create_matrix(a: typing.Union[Form, cpp.fem.Form], mat_type=None) -> PETSc.Mat:
+    _a = _create_cpp_form(a)
+    assert _a.rank == 2
+    function_spaces = _a.function_spaces
+    dofmaps = [function_space.dofmap for function_space in function_spaces]
+    index_maps = [dofmap.index_map for dofmap in dofmaps]
+    index_maps_bs = [dofmap.index_map_bs for dofmap in dofmaps]
+    integral_types = cpp.fem.get_integral_types_from_form(_a)
+    dofmaps_lists = [dofmap.list() for dofmap in dofmaps]
+    mesh = _a.mesh
+    assert all(function_space.mesh == mesh for function_space in function_spaces)
     if mat_type is not None:
-        return cpp.fem.create_matrix(_create_cpp_form(a), mat_type)
+        return cpp.fem.create_matrix(mesh, index_maps, index_maps_bs, integral_types, dofmaps_lists, mat_type)
     else:
-        return cpp.fem.create_matrix(_create_cpp_form(a))
+        return cpp.fem.create_matrix(mesh, index_maps, index_maps_bs, integral_types, dofmaps_lists)
 
 
-def create_matrix_block(a: typing.List[typing.List[typing.Union[Form, cpp.fem.Form]]]) -> PETSc.Mat:
-    return cpp.fem.create_matrix_block(_create_cpp_form(a))
+def _create_matrix_block_or_nest(a, mat_type, cpp_create_function):
+    _a = _create_cpp_form(a)
+    function_spaces = _get_block_function_spaces(_a)
+    rows, cols = len(function_spaces[0]), len(function_spaces[1])
+    dofmaps = [[function_spaces[0][i].dofmap for i in range(rows)],
+               [function_spaces[1][j].dofmap for j in range(cols)]]
+    index_maps = [[dofmaps[0][i].index_map for i in range(rows)],
+                  [dofmaps[1][j].index_map for j in range(cols)]]
+    index_maps_bs = [[dofmaps[0][i].index_map_bs for i in range(rows)],
+                     [dofmaps[1][j].index_map_bs for j in range(cols)]]
+    integral_types = [[set() for _ in range(cols)] for _ in range(rows)]
+    for i in range(rows):
+        for j in range(cols):
+            if _a[i][j] is not None:
+                integral_types[i][j].update(cpp.fem.get_integral_types_from_form(_a[i][j]))
+    dofmaps_lists = [[dofmaps[0][i].list() for i in range(rows)],
+                     [dofmaps[1][j].list() for j in range(cols)]]
+    mesh = None
+    for j in range(cols):
+        for i in range(rows):
+            if _a[i][j] is not None:
+                mesh = _a[i][j].mesh
+    assert mesh is not None
+    assert all(_a[i][j] is None or _a[i][j].mesh == mesh for i in range(rows) for j in range(cols))
+    assert all(function_space.mesh == mesh for function_space in function_spaces[0])
+    assert all(function_space.mesh == mesh for function_space in function_spaces[1])
+    if mat_type is not None:
+        return cpp_create_function(mesh, index_maps, index_maps_bs, integral_types, dofmaps_lists, mat_type)
+    else:
+        return cpp_create_function(mesh, index_maps, index_maps_bs, integral_types, dofmaps_lists)
 
 
-def create_matrix_nest(a: typing.List[typing.List[typing.Union[Form, cpp.fem.Form]]]) -> PETSc.Mat:
-    return cpp.fem.create_matrix_nest(_create_cpp_form(a))
+def create_matrix_block(a: typing.List[typing.List[typing.Union[Form, cpp.fem.Form]]], mat_type=None) -> PETSc.Mat:
+    return _create_matrix_block_or_nest(a, mat_type, cpp.fem.create_matrix_block)
+
+
+def create_matrix_nest(a: typing.List[typing.List[typing.Union[Form, cpp.fem.Form]]], mat_types=None) -> PETSc.Mat:
+    return _create_matrix_block_or_nest(a, mat_types, cpp.fem.create_matrix_nest)
 
 
 # -- Scalar assembly ---------------------------------------------------------
@@ -209,8 +282,9 @@ def assemble_matrix(a: typing.Union[Form, cpp.fem.Form],
     finalised, i.e. ghost values are not accumulated.
 
     """
-    A = cpp.fem.create_matrix(_create_cpp_form(a))
-    return assemble_matrix(A, a, bcs, diagonal)
+    _a = _create_cpp_form(a)
+    A = create_matrix(_a)
+    return assemble_matrix(A, _a, bcs, diagonal)
 
 
 @assemble_matrix.register(PETSc.Mat)
@@ -237,9 +311,10 @@ def assemble_matrix_nest(a: typing.List[typing.List[typing.Union[Form, cpp.fem.F
                          bcs: typing.List[DirichletBC] = [], mat_types=[],
                          diagonal: float = 1.0) -> PETSc.Mat:
     """Assemble bilinear forms into matrix"""
-    A = cpp.fem.create_matrix_nest(_create_cpp_form(a), mat_types)
-    assemble_matrix_nest(A, a, bcs, diagonal)
-    return A
+    _a = _create_cpp_form(a)
+    A = create_matrix_nest(_a, mat_types)
+    A.zeroEntries()
+    return assemble_matrix_nest(A, _a, bcs, diagonal)
 
 
 @assemble_matrix_nest.register(PETSc.Mat)
@@ -263,38 +338,9 @@ def assemble_matrix_block(a: typing.List[typing.List[typing.Union[Form, cpp.fem.
                           bcs: typing.List[DirichletBC] = [],
                           diagonal: float = 1.0) -> PETSc.Mat:
     """Assemble bilinear forms into matrix"""
-    A = cpp.fem.create_matrix_block(_create_cpp_form(a))
-    return assemble_matrix_block(A, a, bcs, diagonal)
-
-
-def _extract_function_spaces(a: typing.List[typing.List[typing.Union[Form, cpp.fem.Form]]]):
-    """From a rectangular array of bilinear forms, extraction the function spaces
-    for each block row and block column
-
-    """
-
-    assert len({len(cols) for cols in a}) == 1, "Array of function spaces is not rectangular"
-
-    # Extract (V0, V1) pair for each block in 'a'
-    def fn(form):
-        return form.function_spaces if form is not None else None
-    from functools import partial
-    Vblock = map(partial(map, fn), a)
-
-    # Compute spaces for each row/column block
-    rows = [set() for i in range(len(a))]
-    cols = [set() for i in range(len(a[0]))]
-    for i, Vrow in enumerate(Vblock):
-        for j, V in enumerate(Vrow):
-            if V is not None:
-                rows[i].add(V[0])
-                cols[j].add(V[1])
-
-    rows = [e for row in rows for e in row]
-    cols = [e for col in cols for e in col]
-    assert len(rows) == len(a)
-    assert len(cols) == len(a[0])
-    return rows, cols
+    _a = _create_cpp_form(a)
+    A = create_matrix_block(_a)
+    return assemble_matrix_block(A, _a, bcs, diagonal)
 
 
 @assemble_matrix_block.register(PETSc.Mat)
@@ -304,7 +350,7 @@ def _(A: PETSc.Mat,
       diagonal: float = 1.0) -> PETSc.Mat:
     """Assemble bilinear forms into matrix"""
     _a = _create_cpp_form(a)
-    V = _extract_function_spaces(_a)
+    V = _get_block_function_spaces(_a)
     is_rows = cpp.la.create_petsc_index_sets([(Vsub.dofmap.index_map, Vsub.dofmap.index_map_bs) for Vsub in V[0]])
     is_cols = cpp.la.create_petsc_index_sets([(Vsub.dofmap.index_map, Vsub.dofmap.index_map_bs) for Vsub in V[1]])
 
