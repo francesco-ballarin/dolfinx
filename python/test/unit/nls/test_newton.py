@@ -184,7 +184,7 @@ def test_nonlinear_pde_snes():
     with u.vector.localForm() as u_local:
         u_local.set(0.9)
     b = dolfinx.cpp.la.create_vector(V.dofmap.index_map, V.dofmap.index_map_bs)
-    J = dolfinx.cpp.fem.create_matrix(problem.a_comp._cpp_object)
+    J = fem.create_matrix(problem.a_comp._cpp_object)
 
     # Create Newton solver and solve
     snes = PETSc.SNES().create()
