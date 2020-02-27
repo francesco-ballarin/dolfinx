@@ -92,6 +92,7 @@ def create_matrix(a: typing.Union[Form, cpp.fem.Form], mat_type=None) -> PETSc.M
     index_maps = [dofmap.index_map for dofmap in dofmaps]
     index_maps_bs = [dofmap.index_map_bs for dofmap in dofmaps]
     integral_types = cpp.fem.get_integral_types_from_form(_a)
+    integral_types = list(integral_types)  # TODO Remove this when pybind11#2122 is fixed.
     dofmaps_lists = [dofmap.list() for dofmap in dofmaps]
     mesh = _a.mesh
     assert all(function_space.mesh == mesh for function_space in function_spaces)
@@ -116,6 +117,8 @@ def _create_matrix_block_or_nest(a, mat_type, cpp_create_function):
         for j in range(cols):
             if _a[i][j] is not None:
                 integral_types[i][j].update(cpp.fem.get_integral_types_from_form(_a[i][j]))
+    integral_types = [[list(integral_types[row][col]) for col in range(cols)]
+                      for row in range(rows)]  # TODO Remove this when pybind11#2122 is fixed.
     dofmaps_lists = [[dofmaps[0][i].list() for i in range(rows)],
                      [dofmaps[1][j].list() for j in range(cols)]]
     mesh = None

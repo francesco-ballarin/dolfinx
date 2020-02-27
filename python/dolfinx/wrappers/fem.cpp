@@ -50,6 +50,42 @@
 
 namespace py = pybind11;
 
+namespace
+{
+  template<class T>
+  std::set<T> convert_vector_to_set(const std::vector<T>& input)
+  {
+    // TODO Remove this when pybind11#2122 is fixed.
+    std::set<T> output(input.begin(), input.end());
+    return output;
+  }
+
+  template<class T>
+  std::vector<std::vector<std::set<T>>> convert_vector_to_set(
+    const std::vector<std::vector<std::vector<T>>>& input)
+  {
+    // TODO Remove this when pybind11#2122 is fixed.
+    std::size_t rows = input.size();
+    std::size_t cols = input[0].size();
+    assert(std::all_of(input.begin(), input.end(),
+      [&cols](const std::vector<std::vector<T>>& input_){
+      return cols == input_.size();}));
+    std::vector<std::vector<std::set<T>>> output;
+    output.reserve(rows);
+    for (std::size_t row = 0; row < rows; row++)
+    {
+      std::vector<std::set<T>> output_row;
+      output_row.reserve(cols);
+      for (std::size_t col = 0; col < cols; col++)
+      {
+        output_row.push_back(convert_vector_to_set(input[row][col]));
+      }
+      output.push_back(output_row);
+    }
+    return output;
+  }
+}
+
 namespace dolfinx_wrappers
 {
 void fem(py::module& m)
@@ -86,9 +122,17 @@ void fem(py::module& m)
         [](const dolfinx::mesh::Mesh& mesh,
            std::array<std::reference_wrapper<const dolfinx::common::IndexMap>, 2> index_maps,
            const std::array<int, 2> index_maps_bs,
-           const std::set<dolfinx::fem::IntegralType> & integral_types,
+           const std::vector<dolfinx::fem::IntegralType>& integral_types_,
            std::array<const dolfinx::graph::AdjacencyList<std::int32_t>*, 2> dofmaps,
            const std::string& matrix_type) {
+          // Due to pybind11#2122 the argument integral_types_ is of type
+          //   const std::vector<dolfinx::fem::IntegralType>&
+          // rather than
+          //   const std::set<dolfinx::fem::IntegralType>&
+          // as in the C++ backend. Convert here std::vector to a std::set.
+          // TODO Remove this when pybind11#2122 is fixed.
+          auto integral_types = convert_vector_to_set(integral_types_);
+          //
           return dolfinx::fem::create_matrix(
                    mesh, index_maps, index_maps_bs, integral_types, dofmaps, matrix_type);
         },
@@ -100,9 +144,17 @@ void fem(py::module& m)
         [](const dolfinx::mesh::Mesh& mesh,
            std::array<std::vector<std::reference_wrapper<const dolfinx::common::IndexMap>>, 2> index_maps,
            const std::array<std::vector<int>, 2> index_maps_bs,
-           const std::vector<std::vector<std::set<dolfinx::fem::IntegralType>>>& integral_types,
+           const std::vector<std::vector<std::vector<dolfinx::fem::IntegralType>>>& integral_types_,
            const std::array<std::vector<const dolfinx::graph::AdjacencyList<std::int32_t>*>, 2>& dofmaps,
            const std::string& matrix_type) {
+          // Due to pybind11#2122 the argument integral_types_ is of type
+          //   const std::vector<std::vector<std::vector<dolfinx::fem::IntegralType>>>&
+          // rather than
+          //   const std::vector<std::vector<std::set<dolfinx::fem::IntegralType>>>&
+          // as in the C++ backend. Convert here each inner std::vector to a std::set.
+          // TODO Remove this when pybind11#2122 is fixed.
+          auto integral_types = convert_vector_to_set(integral_types_);
+          //
           return dolfinx::fem::create_matrix_block(
                    mesh, index_maps, index_maps_bs,integral_types, dofmaps, matrix_type);
         },
@@ -114,9 +166,17 @@ void fem(py::module& m)
         [](const dolfinx::mesh::Mesh& mesh,
            std::array<std::vector<std::reference_wrapper<const dolfinx::common::IndexMap>>, 2> index_maps,
            const std::array<std::vector<int>, 2> index_maps_bs,
-           const std::vector<std::vector<std::set<dolfinx::fem::IntegralType>>>& integral_types,
+           const std::vector<std::vector<std::vector<dolfinx::fem::IntegralType>>>& integral_types_,
            const std::array<std::vector<const dolfinx::graph::AdjacencyList<std::int32_t>*>, 2>& dofmaps,
            const std::vector<std::vector<std::string>>& matrix_types) {
+          // Due to pybind11#2122 the argument integral_types_ is of type
+          //   const std::vector<std::vector<std::vector<dolfinx::fem::IntegralType>>>&
+          // rather than
+          //   const std::vector<std::vector<std::set<dolfinx::fem::IntegralType>>>&
+          // as in the C++ backend. Convert here each inner std::vector to a std::set.
+          // TODO Remove this when pybind11#2122 is fixed.
+          auto integral_types = convert_vector_to_set(integral_types_);
+          //
           return dolfinx::fem::create_matrix_nest(
                    mesh, index_maps, index_maps_bs, integral_types, dofmaps, matrix_types);
         },
