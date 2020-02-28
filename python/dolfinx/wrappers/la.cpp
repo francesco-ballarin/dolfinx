@@ -1,4 +1,5 @@
-// Copyright (C) 2017-2019 Chris Richardson and Garth N. Wells
+// Copyright (C) 2017-2020 Chris Richardson, Garth N. Wells and
+// Francesco Ballarin
 //
 // This file is part of DOLFINx (https://www.fenicsproject.org)
 //
@@ -24,6 +25,18 @@
 #include <xtl/xspan.hpp>
 
 namespace py = pybind11;
+
+namespace
+{
+  template <class T>
+  std::array<T, 2> convert_vector_to_array(const std::vector<T>& input)
+  {
+    // TODO remove this when pybind11#2123 is fixed.
+    assert(input.size() == 2);
+    std::array<T, 2> output {{input[0], input[1]}};
+    return output;
+  }
+}
 
 namespace dolfinx_wrappers
 {
@@ -161,5 +174,42 @@ void la(py::module& m)
   //         },
   //         py::return_value_policy::take_ownership,
   //         "Create a PETSc MatNullSpace.");
+
+  py::class_<dolfinx::la::MatSubMatrixWrapper,
+             std::shared_ptr<dolfinx::la::MatSubMatrixWrapper>>(m,
+                                                            "MatSubMatrixWrapper")
+      .def(py::init(
+          [](Mat A,
+             std::vector<IS> index_sets_) {
+            // Due to pybind11#2123, the argument index_sets is of type
+            //   std::vector<IS>
+            // rather than
+            //   std::array<IS, 2>
+            // as in the C++ backend. Convert here the std::vector to a std::array.
+            // TODO remove this when pybind11#2123 is fixed.
+            auto index_sets = convert_vector_to_array(index_sets_);
+            return std::make_unique<dolfinx::la::MatSubMatrixWrapper>(A, index_sets);
+          }))
+      .def(py::init(
+          [](Mat A,
+             std::vector<IS> unrestricted_index_sets_,
+             std::vector<IS> restricted_index_sets_,
+             std::array<std::map<std::int32_t, std::int32_t>, 2> unrestricted_to_restricted,
+             std::array<int, 2> unrestricted_to_restricted_bs) {
+            // Due to pybind11#2123, the arguments {restricted, unrestricted}_index_sets are of type
+            //   std::vector<IS>
+            // rather than
+            //   std::array<IS, 2>
+            // as in the C++ backend. Convert here the std::vector to a std::array.
+            // TODO remove this when pybind11#2123 is fixed.
+            auto unrestricted_index_sets = convert_vector_to_array(unrestricted_index_sets_);
+            auto restricted_index_sets = convert_vector_to_array(restricted_index_sets_);
+            return std::make_unique<dolfinx::la::MatSubMatrixWrapper>(A, unrestricted_index_sets,
+                                                                      restricted_index_sets,
+                                                                      unrestricted_to_restricted,
+                                                                      unrestricted_to_restricted_bs);
+          }))
+      .def("restore", &dolfinx::la::MatSubMatrixWrapper::restore)
+      .def("mat", &dolfinx::la::MatSubMatrixWrapper::mat);
 }
 } // namespace dolfinx_wrappers
