@@ -78,6 +78,7 @@ namespace nb = nanobind;
 
 namespace nanobind::detail
 {
+PETSC_CASTER_MACRO(IS, IS, is);
 PETSC_CASTER_MACRO(Mat, Mat, mat);
 PETSC_CASTER_MACRO(Vec, Vec, vec);
 } // namespace nanobind::detail

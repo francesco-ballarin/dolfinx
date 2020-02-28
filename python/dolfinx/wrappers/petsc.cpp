@@ -293,6 +293,21 @@ void petsc_la_module(nb::module_& m)
       nb::arg("comm"), nb::arg("p"), nb::arg("type") = std::string(),
       "Create a PETSc Mat from sparsity pattern.");
 
+  nb::class_<dolfinx::la::petsc::MatSubMatrixWrapper>(m, "MatSubMatrixWrapper")
+      .def(nb::init<Mat, std::array<IS, 2>>(),
+           nb::arg("A"), nb::arg("index_sets"))
+      .def(nb::init<Mat, std::array<IS, 2>, std::array<IS, 2>,
+                    std::array<std::map<std::int32_t, std::int32_t>, 2>, std::array<int, 2>>(),
+           nb::arg("A"), nb::arg("unrestricted_index_sets"), nb::arg("restricted_index_sets"),
+           nb::arg("unrestricted_to_restricted"), nb::arg("unrestricted_to_restricted_bs"))
+      .def("restore", &dolfinx::la::petsc::MatSubMatrixWrapper::restore)
+      .def("mat", [](const dolfinx::la::petsc::MatSubMatrixWrapper& self)
+           {
+              Mat mat = self.mat();
+              PyObject* obj = PyPetscMat_New(mat);
+              return nb::borrow(obj);
+           });
+
   m.def(
       "create_index_sets",
       [](const std::vector<std::pair<const common::IndexMap*, int>>& maps)
