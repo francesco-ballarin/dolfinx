@@ -308,9 +308,41 @@ void petsc_la_module(nb::module_& m)
               return nb::borrow(obj);
            });
 
+  nb::class_<dolfinx::la::petsc::VecSubVectorReadWrapper>(m, "VecSubVectorReadWrapper")
+      .def(nb::init<Vec, IS, bool>(),
+           nb::arg("x"), nb::arg("index_set"), nb::arg("ghosted") = true)
+      .def(nb::init<Vec, IS, IS, const std::map<std::int32_t, std::int32_t>&, int, bool>(),
+           nb::arg("x"), nb::arg("unrestricted_index_set"), nb::arg("restricted_index_set"),
+           nb::arg("unrestricted_to_restricted"), nb::arg("unrestricted_to_restricted_bs"),
+           nb::arg("ghosted") = true)
+      .def_prop_ro(
+           "content",
+           [](dolfinx::la::petsc::VecSubVectorReadWrapper& self)
+           {
+             std::vector<PetscScalar>& array = self.mutable_content();
+             return nb::ndarray<PetscScalar, nb::numpy>(
+                array.data(), {array.size()}, nb::handle());
+           },
+           nb::rv_policy::reference_internal);
+
+  nb::class_<dolfinx::la::petsc::VecSubVectorWrapper,
+             dolfinx::la::petsc::VecSubVectorReadWrapper>(m, "VecSubVectorWrapper")
+      .def(nb::init<Vec, IS, bool>(),
+           nb::arg("x"), nb::arg("index_set"), nb::arg("ghosted") = true)
+      .def(nb::init<Vec, IS, IS, const std::map<std::int32_t, std::int32_t>&, int, bool>(),
+           nb::arg("x"), nb::arg("unrestricted_index_set"), nb::arg("restricted_index_set"),
+           nb::arg("unrestricted_to_restricted"), nb::arg("unrestricted_to_restricted_bs"),
+           nb::arg("ghosted") = true)
+      .def("restore", &dolfinx::la::petsc::VecSubVectorWrapper::restore);
+
+  nb::enum_<dolfinx::la::petsc::GhostBlockLayout>(m, "GhostBlockLayout")
+      .value("intertwined", dolfinx::la::petsc::GhostBlockLayout::intertwined)
+      .value("trailing", dolfinx::la::petsc::GhostBlockLayout::trailing);
+
   m.def(
       "create_index_sets",
-      [](const std::vector<std::pair<const common::IndexMap*, int>>& maps, const std::vector<int> is_bs)
+      [](const std::vector<std::pair<const common::IndexMap*, int>>& maps, const std::vector<int> is_bs,
+         bool ghosted, dolfinx::la::petsc::GhostBlockLayout ghost_block_layout)
       {
         using X = std::vector<
             std::pair<std::reference_wrapper<const common::IndexMap>, int>>;
@@ -319,7 +351,7 @@ void petsc_la_module(nb::module_& m)
                                [](auto m) -> typename X::value_type
                                { return {*m.first, m.second}; });
         std::vector<IS> index_sets
-            = dolfinx::la::petsc::create_index_sets(_maps, is_bs);
+            = dolfinx::la::petsc::create_index_sets(_maps, is_bs, ghosted, ghost_block_layout);
 
         std::vector<nb::object> py_index_sets;
         for (auto is : index_sets)
@@ -330,7 +362,8 @@ void petsc_la_module(nb::module_& m)
         }
         return py_index_sets;
       },
-      nb::arg("maps"), nb::arg("is_bs"));
+      nb::arg("maps"), nb::arg("is_bs"), nb::arg("ghosted") = true,
+      nb::arg("ghost_block_layout") = dolfinx::la::petsc::GhostBlockLayout::intertwined);
 
   m.def(
       "scatter_local_vectors",
