@@ -118,6 +118,11 @@ void la(py::module& m)
       .def("scatter_forward", &dolfinx::la::Vector<PetscScalar>::scatter_fwd)
       .def("scatter_reverse", &dolfinx::la::Vector<PetscScalar>::scatter_rev);
 
+  // utils
+  py::enum_<dolfinx::la::GhostBlockLayout>(m, "GhostBlockLayout")
+      .value("intertwined", dolfinx::la::GhostBlockLayout::intertwined)
+      .value("trailing", dolfinx::la::GhostBlockLayout::trailing);
+
   m.def("create_vector",
         py::overload_cast<const dolfinx::common::IndexMap&, int>(
             &dolfinx::la::create_petsc_vector),
@@ -134,35 +139,9 @@ void la(py::module& m)
       "Create a PETSc Mat from sparsity pattern.");
   // TODO: check reference counting for index sets
   m.def("create_petsc_index_sets", &dolfinx::la::create_petsc_index_sets,
+        py::arg("maps"), py::arg("is_bs"), py::arg("ghosted") = true,
+        py::arg("ghost_block_layout") = dolfinx::la::GhostBlockLayout::intertwined,
         py::return_value_policy::take_ownership);
-  m.def(
-      "scatter_local_vectors",
-      [](Vec x,
-         const std::vector<py::array_t<PetscScalar, py::array::c_style>>& x_b,
-         const std::vector<std::pair<
-             std::reference_wrapper<const dolfinx::common::IndexMap>, int>>&
-             maps) {
-        std::vector<xtl::span<const PetscScalar>> _x_b;
-        for (auto& array : x_b)
-          _x_b.emplace_back(array.data(), array.size());
-        dolfinx::la::scatter_local_vectors(x, _x_b, maps);
-      },
-      "Scatter the (ordered) list of sub vectors into a block "
-      "vector.");
-  m.def(
-      "get_local_vectors",
-      [](const Vec x,
-         const std::vector<std::pair<
-             std::reference_wrapper<const dolfinx::common::IndexMap>, int>>&
-             maps) {
-        std::vector<std::vector<PetscScalar>> vecs
-            = dolfinx::la::get_local_vectors(x, maps);
-        std::vector<py::array> ret;
-        for (std::vector<PetscScalar>& v : vecs)
-          ret.push_back(as_pyarray(std::move(v)));
-        return ret;
-      },
-      "Gather an (ordered) list of sub vectors from a block vector.");
 
   // NOTE: Enabling the below requires adding a C API for MatNullSpace to
   // petsc4py
@@ -211,5 +190,34 @@ void la(py::module& m)
           }))
       .def("restore", &dolfinx::la::MatSubMatrixWrapper::restore)
       .def("mat", &dolfinx::la::MatSubMatrixWrapper::mat);
+
+
+  py::class_<dolfinx::la::VecSubVectorReadWrapper,
+             std::shared_ptr<dolfinx::la::VecSubVectorReadWrapper>>(m,
+                                                                    "VecSubVectorReadWrapper")
+      .def(py::init<Vec, IS, bool>(),
+           py::arg("x"), py::arg("index_set"), py::arg("ghosted") = true)
+      .def(py::init<Vec, IS, IS, const std::map<std::int32_t, std::int32_t>&, int, bool>(),
+           py::arg("x"), py::arg("unrestricted_index_set"), py::arg("restricted_index_set"),
+           py::arg("unrestricted_to_restricted"), py::arg("unrestricted_to_restricted_bs"),
+           py::arg("ghosted") = true)
+      .def_property_readonly(
+          "content",
+          [](dolfinx::la::VecSubVectorReadWrapper& self) {
+            std::vector<PetscScalar>& array = self.mutable_content();
+            return py::array(array.size(), array.data(), py::none());
+          },
+          py::return_value_policy::reference_internal);
+
+  py::class_<dolfinx::la::VecSubVectorWrapper, dolfinx::la::VecSubVectorReadWrapper,
+             std::shared_ptr<dolfinx::la::VecSubVectorWrapper>>(m,
+                                                                "VecSubVectorWrapper")
+      .def(py::init<Vec, IS, bool>(),
+           py::arg("x"), py::arg("index_set"), py::arg("ghosted") = true)
+      .def(py::init<Vec, IS, IS, const std::map<std::int32_t, std::int32_t>&, int, bool>(),
+           py::arg("x"), py::arg("unrestricted_index_set"), py::arg("restricted_index_set"),
+           py::arg("unrestricted_to_restricted"), py::arg("unrestricted_to_restricted_bs"),
+           py::arg("ghosted") = true)
+      .def("restore", &dolfinx::la::VecSubVectorWrapper::restore);
 }
 } // namespace dolfinx_wrappers
