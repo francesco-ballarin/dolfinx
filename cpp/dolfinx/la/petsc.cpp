@@ -129,118 +129,85 @@ Vec la::petsc::create_vector_wrap(const common::IndexMap& map, int bs,
 std::vector<IS> la::petsc::create_index_sets(
     const std::vector<
         std::pair<std::reference_wrapper<const common::IndexMap>, int>>& maps,
-    const std::vector<int> is_bs)
+    const std::vector<int> is_bs, bool ghosted, GhostBlockLayout ghost_block_layout)
 {
   assert(maps.size() == is_bs.size());
-  std::vector<IS> is;
-  std::int64_t offset = 0;
+  std::vector<std::int32_t> size_local(maps.size());
+  std::vector<std::int32_t> size_ghost(maps.size());
+  std::vector<int> bs(maps.size());
+  std::generate(size_local.begin(), size_local.end(), [i = 0, maps] () mutable {
+    return maps[i++].first.get().size_local();
+  });
+  std::generate(size_ghost.begin(), size_ghost.end(), [i = 0, maps] () mutable {
+    return maps[i++].first.get().num_ghosts();
+  });
+  std::generate(bs.begin(), bs.end(), [i = 0, maps, is_bs] () mutable {
+    auto bs_i = maps[i].second;
+    auto is_bs_i = is_bs[i];
+    i++;
+    assert(is_bs_i == bs_i || is_bs_i == 1);
+    if (is_bs_i == 1)
+      return bs_i;
+    else
+      return 1;
+  });
+
+  // Initialize storage for indices
+  std::vector<std::vector<PetscInt>> index(maps.size());
   for (std::size_t i = 0; i < maps.size(); ++i)
   {
-    auto& map = maps[i];
-    int bs = map.second;
-    std::int32_t size
-        = map.first.get().size_local() + map.first.get().num_ghosts();
-    assert(is_bs[i] == bs || is_bs[i] == 1);
-    if (is_bs[i] == 1)
-      size *= bs;
-    std::vector<PetscInt> _is_content(size);
-    std::iota(_is_content.begin(), _is_content.end(), offset);
-    IS _is;
-    ISCreateBlock(PETSC_COMM_SELF, is_bs[i], _is_content.size(), _is_content.data(), PETSC_COPY_VALUES, &_is);
-    is.push_back(_is);
-    offset += size;
+    if (ghosted)
+    {
+      index[i].resize(bs[i] * (size_local[i] + size_ghost[i]));
+    }
+    else
+    {
+      index[i].resize(bs[i] * size_local[i]);
+    }
   }
 
+  // Compute indices and offset
+  std::size_t offset = 0;
+  for (std::size_t i = 0; i < maps.size(); ++i)
+  {
+    if (ghosted && ghost_block_layout == GhostBlockLayout::intertwined)
+    {
+      std::iota(index[i].begin(), std::next(index[i].begin(), bs[i] * (size_local[i] + size_ghost[i])), offset);
+    }
+    else
+    {
+      std::iota(index[i].begin(), std::next(index[i].begin(), bs[i] * size_local[i]), offset);
+    }
+
+    offset += bs[i] * size_local[i];
+    if (ghost_block_layout == GhostBlockLayout::intertwined)
+    {
+      offset += bs[i] * size_ghost[i];
+    }
+  }
+  if (ghosted && ghost_block_layout == GhostBlockLayout::trailing)
+  {
+    for (std::size_t i = 0; i < maps.size(); ++i)
+    {
+      std::iota(std::next(index[i].begin(), bs[i] * size_local[i]),
+                std::next(index[i].begin(), bs[i] * (size_local[i] + size_ghost[i])), offset);
+
+      offset += bs[i] * size_ghost[i];
+    }
+  }
+
+  // Initialize PETSc IS objects
+  std::vector<IS> is(maps.size());
+  for (std::size_t i = 0; i < maps.size(); ++i)
+  {
+    ISCreateBlock(PETSC_COMM_SELF, is_bs[i], index[i].size(), index[i].data(),
+                  PETSC_COPY_VALUES, &is[i]);
+  }
   return is;
 }
 //-----------------------------------------------------------------------------
-std::vector<std::vector<PetscScalar>> la::petsc::get_local_vectors(
-    const Vec x,
-    const std::vector<
-        std::pair<std::reference_wrapper<const common::IndexMap>, int>>& maps)
-{
-  // Get ghost offset
-  int offset_owned = 0;
-  for (auto& map : maps)
-    offset_owned += map.first.get().size_local() * map.second;
-
-  // Unwrap PETSc vector
-  Vec x_local;
-  VecGhostGetLocalForm(x, &x_local);
-  PetscInt n = 0;
-  VecGetSize(x_local, &n);
-  const PetscScalar* array = nullptr;
-  VecGetArrayRead(x_local, &array);
-  std::span _x(array, n);
-
-  // Copy PETSc Vec data in to local vectors
-  std::vector<std::vector<PetscScalar>> x_b;
-  int offset = 0;
-  int offset_ghost = offset_owned; // Ghost DoFs start after owned
-  for (auto map : maps)
-  {
-    const std::int32_t size_owned = map.first.get().size_local() * map.second;
-    const std::int32_t size_ghost = map.first.get().num_ghosts() * map.second;
-
-    x_b.emplace_back(size_owned + size_ghost);
-    std::copy_n(std::next(_x.begin(), offset), size_owned, x_b.back().begin());
-    std::copy_n(std::next(_x.begin(), offset_ghost), size_ghost,
-                std::next(x_b.back().begin(), size_owned));
-
-    offset += size_owned;
-    offset_ghost += size_ghost;
-  }
-
-  VecRestoreArrayRead(x_local, &array);
-  VecGhostRestoreLocalForm(x, &x_local);
-
-  return x_b;
-}
-//-----------------------------------------------------------------------------
-void la::petsc::scatter_local_vectors(
-    Vec x, const std::vector<std::span<const PetscScalar>>& x_b,
-    const std::vector<
-        std::pair<std::reference_wrapper<const common::IndexMap>, int>>& maps)
-{
-  if (x_b.size() != maps.size())
-    throw std::runtime_error("Mismatch in vector/map size.");
-
-  // Get ghost offset
-  int offset_owned = 0;
-  for (auto& map : maps)
-    offset_owned += map.first.get().size_local() * map.second;
-
-  Vec x_local;
-  VecGhostGetLocalForm(x, &x_local);
-  PetscInt n = 0;
-  VecGetSize(x_local, &n);
-  PetscScalar* array = nullptr;
-  VecGetArray(x_local, &array);
-  std::span _x(array, n);
-
-  // Copy local vectors into PETSc Vec
-  int offset = 0;
-  int offset_ghost = offset_owned; // Ghost DoFs start after owned
-  for (std::size_t i = 0; i < maps.size(); ++i)
-  {
-    const std::int32_t size_owned
-        = maps[i].first.get().size_local() * maps[i].second;
-    const std::int32_t size_ghost
-        = maps[i].first.get().num_ghosts() * maps[i].second;
-
-    std::copy_n(x_b[i].begin(), size_owned, std::next(_x.begin(), offset));
-    std::copy_n(std::next(x_b[i].begin(), size_owned), size_ghost,
-                std::next(_x.begin(), offset_ghost));
-
-    offset += size_owned;
-    offset_ghost += size_ghost;
-  }
-
-  VecRestoreArray(x_local, &array);
-  VecGhostRestoreLocalForm(x, &x_local);
-}
-//-----------------------------------------------------------------------------
-Mat la::petsc::create_matrix(MPI_Comm comm, const SparsityPattern& sp,
+Mat la::petsc::create_matrix(MPI_Comm comm,
+                             const dolfinx::la::SparsityPattern& sp,
                              std::string type)
 {
   PetscErrorCode ierr;
@@ -501,6 +468,230 @@ void petsc::Vector::set_from_options()
 }
 //-----------------------------------------------------------------------------
 Vec petsc::Vector::vec() const { return _x; }
+//-----------------------------------------------------------------------------
+petsc::VecSubVectorReadWrapper::VecSubVectorReadWrapper(
+  Vec x,
+  IS index_set,
+  bool ghosted
+) : _ghosted(ghosted)
+{
+  PetscErrorCode ierr;
+
+  // Get number of entries to extract from x
+  PetscInt is_size;
+  ierr = ISGetLocalSize(index_set, &is_size);
+  if (ierr != 0) petsc::error(ierr, __FILE__, "ISGetLocalSize");
+
+  // Get indices of entries to extract from x
+  const PetscInt *indices;
+  ierr = ISGetIndices(index_set, &indices);
+  if (ierr != 0) petsc::error(ierr, __FILE__, "ISGetIndices");
+
+  // Fetch vector content from x
+  Vec x_local_form;
+  if (_ghosted)
+  {
+    ierr = VecGhostGetLocalForm(x, &x_local_form);
+    if (ierr != 0) petsc::error(ierr, __FILE__, "VecGhostGetLocalForm");
+  }
+  else
+  {
+    x_local_form = x;
+  }
+  _content.resize(is_size, 0.);
+  ierr = VecGetValues(x_local_form, is_size, indices, _content.data());
+  if (ierr != 0) petsc::error(ierr, __FILE__, "VecGetValues");
+  if (_ghosted)
+  {
+    ierr = VecGhostRestoreLocalForm(x, &x_local_form);
+    if (ierr != 0) petsc::error(ierr, __FILE__, "VecGhostRestoreLocalForm");
+  }
+
+  // Restore indices
+  ierr = ISRestoreIndices(index_set, &indices);
+  if (ierr != 0) petsc::error(ierr, __FILE__, "ISRestoreIndices");
+}
+//-----------------------------------------------------------------------------
+petsc::VecSubVectorReadWrapper::VecSubVectorReadWrapper(
+  Vec x,
+  IS unrestricted_index_set,
+  IS restricted_index_set,
+  const std::map<std::int32_t, std::int32_t>& unrestricted_to_restricted,
+  int unrestricted_to_restricted_bs,
+  bool ghosted)
+  : _ghosted(ghosted)
+{
+  PetscErrorCode ierr;
+
+  // Get number of entries to extract from x
+  PetscInt restricted_is_size;
+  ierr = ISGetLocalSize(restricted_index_set, &restricted_is_size);
+  if (ierr != 0) petsc::error(ierr, __FILE__, "ISGetLocalSize");
+
+  // Get indices of entries to extract from x
+  const PetscInt *restricted_indices;
+  ierr = ISGetIndices(restricted_index_set, &restricted_indices);
+  if (ierr != 0) petsc::error(ierr, __FILE__, "ISGetIndices");
+
+  // Fetch vector content from x
+  Vec x_local_form;
+  if (_ghosted)
+  {
+    ierr = VecGhostGetLocalForm(x, &x_local_form);
+    if (ierr != 0) petsc::error(ierr, __FILE__, "VecGhostGetLocalForm");
+  }
+  else
+  {
+    x_local_form = x;
+  }
+  std::vector<PetscScalar> restricted_content(restricted_is_size, 0.);
+  ierr = VecGetValues(x_local_form, restricted_is_size, restricted_indices, restricted_content.data());
+  if (ierr != 0) petsc::error(ierr, __FILE__, "VecGetValues");
+  if (_ghosted)
+  {
+    ierr = VecGhostRestoreLocalForm(x, &x_local_form);
+    if (ierr != 0) petsc::error(ierr, __FILE__, "VecGhostRestoreLocalForm");
+  }
+
+  // Restore indices
+  ierr = ISRestoreIndices(restricted_index_set, &restricted_indices);
+  if (ierr != 0) petsc::error(ierr, __FILE__, "ISRestoreIndices");
+
+  // Get number of entries to be stored in _content
+  PetscInt unrestricted_is_size;
+  ierr = ISGetLocalSize(unrestricted_index_set, &unrestricted_is_size);
+  if (ierr != 0) petsc::error(ierr, __FILE__, "ISGetLocalSize");
+
+  // Assign vector content to an STL vector indexed with respect to the unrestricted index set
+  _content.resize(unrestricted_is_size, 0.);
+  for (PetscInt unrestricted_index = 0; unrestricted_index < unrestricted_is_size; unrestricted_index++)
+  {
+    if (unrestricted_to_restricted.count(unrestricted_index/unrestricted_to_restricted_bs) > 0)
+    {
+      _content[unrestricted_index] = restricted_content[
+        unrestricted_to_restricted_bs*unrestricted_to_restricted.at(
+          unrestricted_index/unrestricted_to_restricted_bs) +
+            unrestricted_index%unrestricted_to_restricted_bs];
+    }
+  }
+}
+//-----------------------------------------------------------------------------
+petsc::VecSubVectorReadWrapper::~VecSubVectorReadWrapper()
+{
+  // Nothing to be done
+}
+//-----------------------------------------------------------------------------
+petsc::VecSubVectorWrapper::VecSubVectorWrapper(
+  Vec x,
+  IS index_set,
+  bool ghosted)
+  : VecSubVectorReadWrapper(x, index_set, ghosted),
+    _global_vector(x), _is(index_set)
+{
+  PetscErrorCode ierr;
+
+  // Get number of entries stored in _content
+  PetscInt is_size;
+  ierr = ISGetLocalSize(index_set, &is_size);
+  if (ierr != 0) petsc::error(ierr, __FILE__, "ISGetLocalSize");
+
+  // Fill in _restricted_to_unrestricted attribute with the identity map
+  for (PetscInt index = 0; index < is_size; index++)
+  {
+    _restricted_to_unrestricted[index] = index;
+  }
+}
+//-----------------------------------------------------------------------------
+petsc::VecSubVectorWrapper::VecSubVectorWrapper(
+  Vec x,
+  IS unrestricted_index_set,
+  IS restricted_index_set,
+  const std::map<std::int32_t, std::int32_t>& unrestricted_to_restricted,
+  int unrestricted_to_restricted_bs,
+  bool ghosted)
+  : VecSubVectorReadWrapper(x, unrestricted_index_set, restricted_index_set, unrestricted_to_restricted,
+                            unrestricted_to_restricted_bs, ghosted),
+    _global_vector(x), _is(restricted_index_set)
+{
+  PetscErrorCode ierr;
+
+  // Get number of entries stored in _content
+  PetscInt unrestricted_is_size;
+  ierr = ISGetLocalSize(unrestricted_index_set, &unrestricted_is_size);
+  if (ierr != 0) petsc::error(ierr, __FILE__, "ISGetLocalSize");
+
+  // Fill in _restricted_to_unrestricted attribute
+  for (PetscInt unrestricted_index = 0; unrestricted_index < unrestricted_is_size; unrestricted_index++)
+  {
+    if (unrestricted_to_restricted.count(unrestricted_index/unrestricted_to_restricted_bs) > 0)
+    {
+      _restricted_to_unrestricted[
+        unrestricted_to_restricted_bs*unrestricted_to_restricted.at(
+          unrestricted_index/unrestricted_to_restricted_bs) +
+            unrestricted_index%unrestricted_to_restricted_bs] = unrestricted_index;
+    }
+  }
+}
+//-----------------------------------------------------------------------------
+petsc::VecSubVectorWrapper::~VecSubVectorWrapper()
+{
+  // Sub vector should have been restored before destroying object
+  assert(!_is);
+  assert(_restricted_to_unrestricted.size() == 0);
+  assert(_content.size() == 0);
+}
+//-----------------------------------------------------------------------------
+void petsc::VecSubVectorWrapper::restore()
+{
+  PetscErrorCode ierr;
+
+  // Get indices of entries to restore in x
+  const PetscInt *restricted_indices;
+  ierr = ISGetIndices(_is, &restricted_indices);
+  if (ierr != 0) petsc::error(ierr, __FILE__, "ISGetIndices");
+
+  // Restrict values from content attribute
+  std::vector<PetscScalar> restricted_values(_restricted_to_unrestricted.size());
+  for (auto& restricted_to_unrestricted_it: _restricted_to_unrestricted)
+  {
+    auto restricted_index = restricted_to_unrestricted_it.first;
+    auto unrestricted_index = restricted_to_unrestricted_it.second;
+    restricted_values[restricted_index] = _content[unrestricted_index];
+  }
+
+  // Insert values calling PETSc API
+  Vec global_vector_local_form;
+  if (_ghosted)
+  {
+    ierr = VecGhostGetLocalForm(_global_vector, &global_vector_local_form);
+    if (ierr != 0) petsc::error(ierr, __FILE__, "VecGhostGetLocalForm");
+  }
+  else
+  {
+    global_vector_local_form = _global_vector;
+  }
+  PetscScalar* array_local_form;
+  ierr = VecGetArray(global_vector_local_form, &array_local_form);
+  if (ierr != 0) petsc::error(ierr, __FILE__, "VecGetArray");
+  for (std::size_t i = 0; i < restricted_values.size(); ++i)
+    array_local_form[restricted_indices[i]] = restricted_values[i];
+  ierr = VecRestoreArray(global_vector_local_form, &array_local_form);
+  if (ierr != 0) petsc::error(ierr, __FILE__, "VecRestoreArray");
+  if (_ghosted)
+  {
+    ierr = VecGhostRestoreLocalForm(_global_vector, &global_vector_local_form);
+    if (ierr != 0) petsc::error(ierr, __FILE__, "VecGhostRestoreLocalForm");
+  }
+
+  // Restore indices
+  ierr = ISRestoreIndices(_is, &restricted_indices);
+  if (ierr != 0) petsc::error(ierr, __FILE__, "ISRestoreIndices");
+
+  // Clear storage
+  _is = nullptr;
+  _restricted_to_unrestricted.clear();
+  _content.clear();
+}
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
 petsc::Operator::Operator(Mat A, bool inc_ref_count) : _matA(A)
