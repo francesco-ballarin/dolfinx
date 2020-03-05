@@ -84,12 +84,13 @@ def test_matrix_assembly_block_nl():
     L_block = [F0, F1]
 
     # Monolithic blocked
+    dofmaps = [u.function_space.dofmap, p.function_space.dofmap]
+    guess = [u.vector, p.vector]
     x0 = dolfinx.fem.create_vector_block(L_block)
-    dolfinx.cpp.la.scatter_local_vectors(
-        x0, [u.vector.array_r, p.vector.array_r],
-        [(u.function_space.dofmap.index_map, u.function_space.dofmap.index_map_bs),
-         (p.function_space.dofmap.index_map, p.function_space.dofmap.index_map_bs)])
-    x0.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+    with dolfinx.fem.BlockVecSubVectorWrapper(x0, dofmaps) as x0_wrapper:
+        for (x0_sub_local, guess_sub) in zip(x0_wrapper, guess):
+            with guess_sub.localForm() as guess_sub_local:
+                x0_sub_local[:] = guess_sub_local
 
     # Ghosts are updated inside assemble_vector_block
     A0 = dolfinx.fem.assemble_matrix_block(a_block, [bc])
@@ -311,12 +312,13 @@ def test_assembly_solve_block_nl():
         u.interpolate(initial_guess_u)
         p.interpolate(initial_guess_p)
 
+        dofmaps = [u.function_space.dofmap, p.function_space.dofmap]
+        guess = [u.vector, p.vector]
         x = dolfinx.fem.create_vector_block(F)
-        dolfinx.cpp.la.scatter_local_vectors(
-            x, [u.vector.array_r, p.vector.array_r],
-            [(u.function_space.dofmap.index_map, u.function_space.dofmap.index_map_bs),
-             (p.function_space.dofmap.index_map, p.function_space.dofmap.index_map_bs)])
-        x.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+        with dolfinx.fem.BlockVecSubVectorWrapper(x, dofmaps) as x_wrapper:
+            for (x_sub_local, guess_sub) in zip(x_wrapper, guess):
+                with guess_sub.localForm() as guess_sub_local:
+                    x_sub_local[:] = guess_sub_local
 
         snes.solve(None, x)
         assert snes.getKSP().getConvergedReason() > 0
@@ -497,13 +499,13 @@ def test_assembly_solve_taylor_hood_nl(mesh):
     u.interpolate(initial_guess_u)
     p.interpolate(initial_guess_p)
 
+    dofmaps = [u.function_space.dofmap, p.function_space.dofmap]
+    guess = [u.vector, p.vector]
     x0 = dolfinx.fem.create_vector_block(F)
-    with u.vector.localForm() as _u, p.vector.localForm() as _p:
-        dolfinx.cpp.la.scatter_local_vectors(
-            x0, [_u.array_r, _p.array_r],
-            [(u.function_space.dofmap.index_map, u.function_space.dofmap.index_map_bs),
-             (p.function_space.dofmap.index_map, p.function_space.dofmap.index_map_bs)])
-    x0.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+    with dolfinx.fem.BlockVecSubVectorWrapper(x0, dofmaps) as x0_wrapper:
+        for (x0_sub_local, guess_sub) in zip(x0_wrapper, guess):
+            with guess_sub.localForm() as guess_sub_local:
+                x0_sub_local[:] = guess_sub_local
 
     snes.solve(None, x0)
 
