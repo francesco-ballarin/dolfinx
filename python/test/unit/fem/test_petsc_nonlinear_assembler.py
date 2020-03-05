@@ -162,7 +162,6 @@ class TestNLSPETSc:
         in the nonlinear setting."""
         from petsc4py import PETSc
 
-        from dolfinx.cpp.la.petsc import scatter_local_vectors
         from dolfinx.fem.petsc import (
             apply_lifting,
             apply_lifting_nest,
@@ -172,6 +171,7 @@ class TestNLSPETSc:
             assemble_vector,
             assemble_vector_block,
             assemble_vector_nest,
+            BlockVecSubVectorWrapper,
             create_vector_block,
             create_vector_nest,
             set_bc,
@@ -228,16 +228,13 @@ class TestNLSPETSc:
 
         def blocked():
             """Monolithic blocked"""
+            dofmaps = [u.function_space.dofmap, p.function_space.dofmap]
+            guess = [u.x.petsc_vec, p.x.petsc_vec]
             x = create_vector_block(L_block)
-            scatter_local_vectors(
-                x,
-                [u.x.petsc_vec.array_r, p.x.petsc_vec.array_r],
-                [
-                    (u.function_space.dofmap.index_map, u.function_space.dofmap.index_map_bs),
-                    (p.function_space.dofmap.index_map, p.function_space.dofmap.index_map_bs),
-                ],
-            )
-            x.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+            with BlockVecSubVectorWrapper(x, dofmaps) as x_wrapper:
+                for (x_sub_local, guess_sub) in zip(x_wrapper, guess):
+                    with guess_sub.localForm() as guess_sub_local:
+                        x_sub_local[:] = guess_sub_local
 
             # Ghosts are updated inside assemble_vector_block
             A = assemble_matrix_block(a_block, bcs=[bc])
@@ -332,8 +329,8 @@ class TestNLSPETSc:
         matrix approaches and test that solution is the same."""
         from petsc4py import PETSc
 
-        from dolfinx.cpp.la.petsc import scatter_local_vectors
         from dolfinx.fem.petsc import (
+            BlockVecSubVectorWrapper,
             create_matrix,
             create_matrix_block,
             create_matrix_nest,
@@ -402,16 +399,14 @@ class TestNLSPETSc:
             u.interpolate(initial_guess_u)
             p.interpolate(initial_guess_p)
 
+            dofmaps = [u.function_space.dofmap, p.function_space.dofmap]
+            guess = [u.x.petsc_vec, p.x.petsc_vec]
             x = create_vector_block(F)
-            scatter_local_vectors(
-                x,
-                [u.x.petsc_vec.array_r, p.x.petsc_vec.array_r],
-                [
-                    (u.function_space.dofmap.index_map, u.function_space.dofmap.index_map_bs),
-                    (p.function_space.dofmap.index_map, p.function_space.dofmap.index_map_bs),
-                ],
-            )
-            x.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+            with BlockVecSubVectorWrapper(x, dofmaps) as x_wrapper:
+                for (x_sub_local, guess_sub) in zip(x_wrapper, guess):
+                    with guess_sub.localForm() as guess_sub_local:
+                        x_sub_local[:] = guess_sub_local
+
             snes.solve(None, x)
             assert snes.getKSP().getConvergedReason() > 0
             assert snes.getConvergedReason() > 0
@@ -543,8 +538,8 @@ class TestNLSPETSc:
         """Assemble Stokes problem with Taylor-Hood elements and solve."""
         from petsc4py import PETSc
 
-        from dolfinx.cpp.la.petsc import scatter_local_vectors
         from dolfinx.fem.petsc import (
+            BlockVecSubVectorWrapper,
             create_matrix,
             create_matrix_block,
             create_matrix_nest,
@@ -620,17 +615,13 @@ class TestNLSPETSc:
 
             u.interpolate(initial_guess_u)
             p.interpolate(initial_guess_p)
+            dofmaps = [u.function_space.dofmap, p.function_space.dofmap]
+            guess = [u.x.petsc_vec, p.x.petsc_vec]
             x = create_vector_block(F)
-            with u.x.petsc_vec.localForm() as _u, p.x.petsc_vec.localForm() as _p:
-                scatter_local_vectors(
-                    x,
-                    [_u.array_r, _p.array_r],
-                    [
-                        (u.function_space.dofmap.index_map, u.function_space.dofmap.index_map_bs),
-                        (p.function_space.dofmap.index_map, p.function_space.dofmap.index_map_bs),
-                    ],
-                )
-            x.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+            with BlockVecSubVectorWrapper(x, dofmaps) as x_wrapper:
+                for (x_sub_local, guess_sub) in zip(x_wrapper, guess):
+                    with guess_sub.localForm() as guess_sub_local:
+                        x_sub_local[:] = guess_sub_local
 
             snes.solve(None, x)
             assert snes.getConvergedReason() > 0
