@@ -8,17 +8,14 @@ import numpy as np
 import pytest
 import scipy.sparse
 from mpi4py import MPI
-from _pytest.mark import ParameterSet
 
-from dolfinx import (DirichletBC, Function, FunctionSpace, TensorFunctionSpace, UnitSquareMesh,
-                     VectorFunctionSpace)
+from dolfinx import DirichletBC, Function, FunctionSpace, UnitSquareMesh, VectorFunctionSpace
 from dolfinx.fem import (assemble_matrix, assemble_matrix_block, assemble_matrix_nest, DofMapRestriction,
                          locate_dofs_topological)
 from dolfinx.mesh import locate_entities
 from ufl import dx, inner, MixedElement, TestFunction, TrialFunction
 
-from test_dofmap_restriction import (ActiveDofs, CellsAll, CellsSubDomain, FacetsAll, FacetsSubDomain,
-                                     TaylorHoodFunctionSpace)
+from test_dofmap_restriction import ActiveDofs, CellsSubDomain, FacetsSubDomain, TaylorHoodFunctionSpace
 
 
 # Mesh
@@ -32,16 +29,8 @@ def get_subdomains():
     return (
         # Unrestricted
         None,
-        # Cells restrictions
-        CellsAll(),
-        CellsSubDomain(0.5, 0.5),
-        # Facets restrictions
-        FacetsAll(),
-        FacetsSubDomain(on_boundary=True),
-        pytest.param(FacetsSubDomain(X=1.0), marks=pytest.mark.optional),
-        pytest.param(FacetsSubDomain(Y=0.0), marks=pytest.mark.optional),
-        FacetsSubDomain(X=0.75),
-        pytest.param(FacetsSubDomain(Y=0.25), marks=pytest.mark.optional)
+        # Restricted
+        CellsSubDomain(0.5, 0.75)
     )
 
 
@@ -49,45 +38,12 @@ def get_subdomains_pairs():
     return (
         # (unrestricted, unrestricted)
         (None, None),
-        # (unrestricted, {cells, facets} restriction)
-        pytest.param((None, CellsAll()), marks=pytest.mark.optional),
-        (None, CellsSubDomain(0.75, 0.75)),
-        pytest.param((None, FacetsAll()), marks=pytest.mark.optional),
-        pytest.param((None, FacetsSubDomain(on_boundary=True)), marks=pytest.mark.optional),
-        (None, FacetsSubDomain(Y=0.0)),
-        # ({cells, facets} restriction, unrestricted)
-        pytest.param((CellsAll(), None), marks=pytest.mark.optional),
-        pytest.param((CellsSubDomain(0.5, 0.75), None), marks=pytest.mark.optional),
-        pytest.param((FacetsAll(), None), marks=pytest.mark.optional),
-        pytest.param((FacetsSubDomain(on_boundary=True), None), marks=pytest.mark.optional),
-        pytest.param((FacetsSubDomain(X=1.0), None), marks=pytest.mark.optional),
-        # (cells restriction, cells restriction)
-        (CellsAll(), CellsSubDomain(0.75, 0.75)),
-        (CellsSubDomain(0.75, 0.75), CellsSubDomain(0.75, 0.75)),
-        pytest.param((CellsSubDomain(0.5, 0.75), CellsSubDomain(0.75, 0.75)), marks=pytest.mark.optional),
-        # (facets restriction, facets restriction)
-        (FacetsAll(), FacetsAll()),
-        pytest.param((FacetsSubDomain(on_boundary=True), FacetsSubDomain(on_boundary=True)),
-                     marks=pytest.mark.optional),
-        (FacetsAll(), FacetsSubDomain(Y=0.0)),
-        pytest.param((FacetsSubDomain(X=1.0), FacetsAll()), marks=pytest.mark.optional),
-        (FacetsSubDomain(on_boundary=True), FacetsSubDomain(X=1.0)),
-        pytest.param((FacetsSubDomain(X=1.0), FacetsSubDomain(on_boundary=True)), marks=pytest.mark.optional),
-        (FacetsSubDomain(X=1.0), FacetsSubDomain(Y=0.0)),
-        pytest.param((FacetsSubDomain(X=0.75), FacetsSubDomain(Y=0.0)), marks=pytest.mark.optional),
-        pytest.param((FacetsSubDomain(X=0.75), FacetsSubDomain(Y=0.25)), marks=pytest.mark.optional),
-        # (cells restriction, facets restriction)
-        (CellsSubDomain(0.5, 0.75), FacetsAll()),
-        (CellsSubDomain(0.5, 0.75), FacetsSubDomain(on_boundary=True)),
-        pytest.param((CellsSubDomain(0.5, 0.75), FacetsSubDomain(Y=0.25)), marks=pytest.mark.optional),
-        pytest.param((FacetsSubDomain(on_boundary=True), CellsSubDomain(0.5, 0.75)), marks=pytest.mark.optional),
-        pytest.param((FacetsSubDomain(Y=0.25), CellsSubDomain(0.5, 0.75)), marks=pytest.mark.optional),
-        # (facets restriction, cells restriction)
-        pytest.param((FacetsAll(), CellsSubDomain(0.5, 0.75)), marks=pytest.mark.optional),
-        pytest.param((FacetsSubDomain(on_boundary=True), CellsSubDomain(0.5, 0.75)), marks=pytest.mark.optional),
-        pytest.param((FacetsSubDomain(Y=0.25), CellsSubDomain(0.5, 0.75)), marks=pytest.mark.optional),
-        pytest.param((CellsSubDomain(0.5, 0.75), FacetsSubDomain(on_boundary=True)), marks=pytest.mark.optional),
-        pytest.param((CellsSubDomain(0.5, 0.75), FacetsSubDomain(Y=0.25)), marks=pytest.mark.optional)
+        # (unrestricted, restricted)
+        (None, CellsSubDomain(0.5, 0.75)),
+        # (restricted, unrestricted)
+        (CellsSubDomain(0.5, 0.75), None),
+        # (restricted, restricted)
+        (CellsSubDomain(0.5, 0.75), CellsSubDomain(0.75, 0.5))
     )
 
 
@@ -95,35 +51,15 @@ def get_subdomains_pairs():
 def get_function_spaces():
     return (
         lambda mesh: FunctionSpace(mesh, ("Lagrange", 1)),
-        pytest.param(lambda mesh: FunctionSpace(mesh, ("Lagrange", 2)), marks=pytest.mark.optional),
         lambda mesh: VectorFunctionSpace(mesh, ("Lagrange", 1)),
-        pytest.param(lambda mesh: VectorFunctionSpace(mesh, ("Lagrange", 2)), marks=pytest.mark.optional),
-        pytest.param(lambda mesh: TensorFunctionSpace(mesh, ("Lagrange", 1)), marks=pytest.mark.optional),
-        pytest.param(lambda mesh: TensorFunctionSpace(mesh, ("Lagrange", 2)), marks=pytest.mark.optional),
-        lambda mesh: TaylorHoodFunctionSpace(mesh, ("Lagrange", 1)),
-        pytest.param(lambda mesh: TaylorHoodFunctionSpace(mesh, ("Lagrange", 2)), marks=pytest.mark.optional)
+        lambda mesh: TaylorHoodFunctionSpace(mesh, ("Lagrange", 1))
     )
 
 
 def get_function_spaces_pairs():
-    def _convert_optional(i):
-        if isinstance(i, ParameterSet):
-            assert len(i.marks) == 1
-            assert i.marks[0].name == "optional"
-            assert len(i.values) == 1
-            i = i.values[0]
-            return True, i
-        else:
-            return False, i
-
     for i in get_function_spaces():
-        is_optional_i, i = _convert_optional(i)
         for j in get_function_spaces():
-            is_optional_j, j = _convert_optional(j)
-            if is_optional_i or is_optional_j:
-                yield pytest.param((i, j), marks=pytest.mark.optional)
-            else:
-                yield (i, j)
+            yield (i, j)
 
 
 # Generation of function employed in form definition
@@ -151,15 +87,6 @@ def get_function(V, preprocess_x=None):
                 2 * x[0] + 4 * x[1] * x[1],
                 3 * x[0] + 5 * x[1] * x[1],
                 7 * x[0] + 11 * x[1] * x[1]
-            ], axis=0)
-    elif len(shape) == 2:
-        def f(x):
-            x = preprocess_x(x)
-            return np.stack([
-                2 * x[0] + 4 * x[1] * x[1],
-                3 * x[0] + 5 * x[1] * x[1],
-                7 * x[0] + 11 * x[1] * x[1],
-                13 * x[0] + 17 * x[1] * x[1]
             ], axis=0)
     u = Function(V)
     try:
@@ -193,8 +120,6 @@ def get_bilinear_form(V):
         return f * inner(u, v) * dx
     elif len(shape) == 1:
         return sum(f[i] * inner(u[i], v[i]) for i in range(shape[0])) * dx
-    elif len(shape) == 2:
-        return sum(f[i, j] * inner(u[i, j], v[i, j]) for i in range(shape[0]) for j in range(shape[1])) * dx
 
 
 # Generation of two-by-two block bilinear forms employed in the block/nest matrix test cases
@@ -221,9 +146,6 @@ def get_block_bilinear_form(V1, V2):
     elif len(shape_1) == 1:
         block_form[0][0] = sum(f1[i] * inner(u1[i], v1[i])
                                for i in range(shape_1[0])) * dx
-    elif len(shape_1) == 2:
-        block_form[0][0] = sum(f1[i, j] * inner(u1[i, j], v1[i, j])
-                               for i in range(shape_1[0]) for j in range(shape_1[1])) * dx
 
     # (2, 2) block
     shape_2 = V2.ufl_element().value_shape()
@@ -232,9 +154,6 @@ def get_block_bilinear_form(V1, V2):
     elif len(shape_2) == 1:
         block_form[1][1] = sum(f2[i] * inner(u2[i], v2[i])
                                for i in range(shape_2[0])) * dx
-    elif len(shape_2) == 2:
-        block_form[1][1] = sum(f2[i, j] * inner(u2[i, j], v2[i, j])
-                               for i in range(shape_2[0]) for j in range(shape_2[1])) * dx
 
     # (1, 2) and (2, 1) blocks
     if len(shape_1) == 0:
@@ -246,11 +165,6 @@ def get_block_bilinear_form(V1, V2):
                                    for i in range(shape_2[0])) * dx
             block_form[1][0] = sum(f2[i] * inner(diff(u1, i - 1), v2[i])
                                    for i in range(shape_2[0])) * dx
-        elif len(shape_2) == 2:
-            block_form[0][1] = sum(f1 * inner(u2[i, j], diff(v1, i + j - 1))
-                                   for i in range(shape_2[0]) for j in range(shape_2[1])) * dx
-            block_form[1][0] = sum(f2[i, j] * inner(diff(u1, i + j - 1), v2[i, j])
-                                   for i in range(shape_2[0]) for j in range(shape_2[1])) * dx
     elif len(shape_1) == 1:
         if len(shape_2) == 0:
             block_form[0][1] = sum(f1[i] * inner(diff(u2, i - 1), v1[i])
@@ -262,28 +176,6 @@ def get_block_bilinear_form(V1, V2):
                                    for i in range(max(shape_1[0], shape_2[0]))) * dx
             block_form[1][0] = sum(f2[i % shape_2[0]] * inner(u1[i % shape_1[0]], v2[i % shape_2[0]])
                                    for i in range(max(shape_1[0], shape_2[0]))) * dx
-        elif len(shape_2) == 2:
-            block_form[0][1] = sum(f1[i % shape_1[0]] * inner(u2[i % shape_2[0], j], v1[i % shape_1[0]])
-                                   for i in range(max(shape_1[0], shape_2[0])) for j in range(shape_2[1])) * dx
-            block_form[1][0] = sum(f2[i % shape_2[0], j] * inner(u1[i % shape_1[0]], v2[i % shape_2[0], j])
-                                   for i in range(max(shape_1[0], shape_2[0])) for j in range(shape_2[1])) * dx
-    elif len(shape_1) == 2:
-        if len(shape_2) == 0:
-            block_form[0][1] = sum(f1[i, j] * inner(diff(u2, i + j - 1), v1[i, j])
-                                   for i in range(shape_1[0]) for j in range(shape_1[1])) * dx
-            block_form[1][0] = sum(f2 * inner(u1[i, j], diff(v2, i + j - 1))
-                                   for i in range(shape_1[0]) for j in range(shape_1[1])) * dx
-        elif len(shape_2) == 1:
-            block_form[0][1] = sum(f1[i % shape_1[0], j] * inner(u2[i % shape_2[0]], v1[i % shape_1[0], j])
-                                   for i in range(max(shape_1[0], shape_2[0])) for j in range(shape_1[1])) * dx
-            block_form[1][0] = sum(f2[i % shape_2[0]] * inner(u1[i % shape_1[0], j], v2[i % shape_2[0]])
-                                   for i in range(max(shape_1[0], shape_2[0])) for j in range(shape_1[1])) * dx
-        elif len(shape_2) == 2:
-            assert shape_1 == shape_2
-            block_form[0][1] = sum(f1[i, j] * inner(u2[i, j], v1[i, j])
-                                   for i in range(shape_1[0]) for j in range(shape_1[1])) * dx
-            block_form[1][0] = sum(f2[i, j] * inner(u1[i, j], v2[i, j])
-                                   for i in range(shape_1[0]) for j in range(shape_1[1])) * dx
     return block_form
 
 
