@@ -198,7 +198,13 @@ int main(int argc, char* argv[])
 
     // Compute solution
     fem::Function<PetscScalar> u(V);
-    la::PETScMatrix A = la::PETScMatrix(fem::create_matrix(*a), false);
+    la::PETScMatrix A = la::PETScMatrix(fem::create_matrix(
+      *a->mesh(),
+      {{*a->function_spaces()[0]->dofmap()->index_map, *a->function_spaces()[1]->dofmap()->index_map}},
+      {{a->function_spaces()[0]->dofmap()->index_map_bs(), a->function_spaces()[1]->dofmap()->index_map_bs()}},
+      fem::get_integral_types_from_form(*a),
+      {{&a->function_spaces()[0]->dofmap()->list(), &a->function_spaces()[1]->dofmap()->list()}}
+    ), false);
     la::PETScVector b(*L->function_spaces()[0]->dofmap()->index_map,
                       L->function_spaces()[0]->dofmap()->index_map_bs());
 
