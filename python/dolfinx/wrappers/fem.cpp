@@ -125,6 +125,8 @@ void fem(py::module& m)
         py::arg("integral_types"), py::arg("dofmaps"),
         py::arg("matrix_types") = std::vector<std::vector<std::string>>(),
         "Create nested sparse matrix for bilinear forms.");
+  m.def("get_integral_types_from_form", &dolfinx::fem::get_integral_types_from_form<PetscScalar>,
+        "Extract integral types from a Form.");
   m.def(
       "create_element_dof_layout",
       [](const std::uintptr_t dofmap, const dolfinx::mesh::CellType cell_type,
