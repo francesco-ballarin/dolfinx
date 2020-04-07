@@ -224,8 +224,8 @@ Mat fem::create_matrix_nest(
   std::size_t cols = index_maps[1].size();
   assert(index_maps_bs[1].size() == cols);
   assert(std::all_of(integral_types.begin(), integral_types.end(),
-    [&cols](const std::vector<std::set<fem::IntegralType>>& form_integrals_types_){
-    return form_integrals_types_.size() == cols;}));
+    [&cols](const std::vector<std::set<fem::IntegralType>>& integral_types_){
+    return integral_types_.size() == cols;}));
   assert(dofmaps[1].size() == cols);
   std::vector<std::vector<std::string>> _matrix_types(
       rows, std::vector<std::string>(cols));
