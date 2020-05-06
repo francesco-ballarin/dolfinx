@@ -120,11 +120,21 @@ void fem(py::module& m)
       "Pack constants for an Expression.");
   m.def("create_matrix",
         [](const dolfinx::mesh::Mesh& mesh,
-           std::array<std::reference_wrapper<const dolfinx::common::IndexMap>, 2> index_maps,
+           std::vector<std::reference_wrapper<const dolfinx::common::IndexMap>> index_maps_,
            const std::array<int, 2> index_maps_bs,
            const std::vector<dolfinx::fem::IntegralType>& integral_types_,
            std::array<const dolfinx::graph::AdjacencyList<std::int32_t>*, 2> dofmaps,
            const std::string& matrix_type) {
+          // Due to pybind11#2123 the argument index_maps_ is of type
+          //   std::vector<std::reference_wrapper<const dolfinx::common::IndexMap>> index_maps
+          // rather than
+          //   std::array<std::reference_wrapper<const dolfinx::common::IndexMap>, 2> index_maps
+          // as in the C++ backend. Convert here std::vector to a std::array.
+          // TODO Remove this when pybind11#2123 is fixed.
+          assert(index_maps_.size() == 2);
+          std::array<std::reference_wrapper<const dolfinx::common::IndexMap>, 2> index_maps{{
+            index_maps_[0], index_maps_[1]
+          }};
           // Due to pybind11#2122 the argument integral_types_ is of type
           //   const std::vector<dolfinx::fem::IntegralType>&
           // rather than
