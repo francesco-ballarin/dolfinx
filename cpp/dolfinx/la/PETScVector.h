@@ -46,10 +46,12 @@ void petsc_error(int error_code, std::string filename,
 /// The caller is responsible for destruction of each IS.
 ///
 /// @param[in] maps Vector of IndexMaps and corresponding block sizes
+/// @param[in] is_bs Requested block sizes for the output vector of PETSc Index Sets
 /// @returns Vector of PETSc Index Sets, created on` PETSC_COMM_SELF`
 std::vector<IS> create_petsc_index_sets(
     const std::vector<
-        std::pair<std::reference_wrapper<const common::IndexMap>, int>>& maps);
+        std::pair<std::reference_wrapper<const common::IndexMap>, int>>& maps,
+    const std::vector<int> is_bs);
 
 /// Create a ghosted PETSc Vec.
 ///
