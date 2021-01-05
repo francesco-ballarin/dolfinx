@@ -310,7 +310,7 @@ void petsc_la_module(nb::module_& m)
 
   m.def(
       "create_index_sets",
-      [](const std::vector<std::pair<const common::IndexMap*, int>>& maps)
+      [](const std::vector<std::pair<const common::IndexMap*, int>>& maps, const std::vector<int> is_bs)
       {
         using X = std::vector<
             std::pair<std::reference_wrapper<const common::IndexMap>, int>>;
@@ -319,7 +319,7 @@ void petsc_la_module(nb::module_& m)
                                [](auto m) -> typename X::value_type
                                { return {*m.first, m.second}; });
         std::vector<IS> index_sets
-            = dolfinx::la::petsc::create_index_sets(_maps);
+            = dolfinx::la::petsc::create_index_sets(_maps, is_bs);
 
         std::vector<nb::object> py_index_sets;
         for (auto is : index_sets)
@@ -330,7 +330,7 @@ void petsc_la_module(nb::module_& m)
         }
         return py_index_sets;
       },
-      nb::arg("maps"));
+      nb::arg("maps"), nb::arg("is_bs"));
 
   m.def(
       "scatter_local_vectors",

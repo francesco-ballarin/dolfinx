@@ -128,19 +128,27 @@ Vec la::petsc::create_vector_wrap(const common::IndexMap& map, int bs,
 //-----------------------------------------------------------------------------
 std::vector<IS> la::petsc::create_index_sets(
     const std::vector<
-        std::pair<std::reference_wrapper<const common::IndexMap>, int>>& maps)
+        std::pair<std::reference_wrapper<const common::IndexMap>, int>>& maps,
+    const std::vector<int> is_bs)
 {
+  assert(maps.size() == is_bs.size());
   std::vector<IS> is;
   std::int64_t offset = 0;
-  for (auto& map : maps)
+  for (std::size_t i = 0; i < maps.size(); ++i)
   {
+    auto& map = maps[i];
     int bs = map.second;
     std::int32_t size
         = map.first.get().size_local() + map.first.get().num_ghosts();
+    assert(is_bs[i] == bs || is_bs[i] == 1);
+    if (is_bs[i] == 1)
+      size *= bs;
+    std::vector<PetscInt> _is_content(size);
+    std::iota(_is_content.begin(), _is_content.end(), offset);
     IS _is;
-    ISCreateStride(PETSC_COMM_SELF, bs * size, offset, 1, &_is);
+    ISCreateBlock(PETSC_COMM_SELF, is_bs[i], _is_content.size(), _is_content.data(), PETSC_COPY_VALUES, &_is);
     is.push_back(_is);
-    offset += bs * size;
+    offset += size;
   }
 
   return is;
