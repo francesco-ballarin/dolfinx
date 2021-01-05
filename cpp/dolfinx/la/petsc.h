@@ -99,10 +99,12 @@ Vec create_vector_wrap(const la::Vector<V>& x)
 /// @note The caller is responsible for destruction of each IS.
 ///
 /// @param[in] maps Vector of IndexMaps and corresponding block sizes
+/// @param[in] is_bs Requested block sizes for the output vector of PETSc Index Sets
 /// @return Vector of PETSc Index Sets, created on` PETSC_COMM_SELF`
 std::vector<IS> create_index_sets(
     const std::vector<
-        std::pair<std::reference_wrapper<const common::IndexMap>, int>>& maps);
+        std::pair<std::reference_wrapper<const common::IndexMap>, int>>& maps,
+    const std::vector<int> is_bs);
 
 /// Copy blocks from Vec into local vectors
 std::vector<std::vector<PetscScalar>> get_local_vectors(
