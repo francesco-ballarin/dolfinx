@@ -327,11 +327,25 @@ def _(A: PETSc.Mat,
       diagonal: float = 1.0) -> PETSc.Mat:
     """Assemble bilinear forms into matrix"""
     _a = _create_cpp_form(a)
+
+    # Assemble form
     for i, a_row in enumerate(_a):
         for j, a_block in enumerate(a_row):
             if a_block is not None:
                 Asub = A.getNestSubMatrix(i, j)
-                assemble_matrix(Asub, a_block, bcs)
+                cpp.fem.assemble_matrix_petsc(Asub, a_block, bcs)
+
+    # Flush to enable switch from add to set in the matrix
+    A.assemble(PETSc.Mat.AssemblyType.FLUSH)
+
+    # Set diagonal
+    for i, a_row in enumerate(_a):
+        for j, a_block in enumerate(a_row):
+            if a_block is not None:
+                Asub = A.getNestSubMatrix(i, j)
+                if a_block.function_spaces[0].id == a_block.function_spaces[1].id:
+                    cpp.fem.insert_diagonal(Asub, a_block.function_spaces[0], bcs, diagonal)
+
     return A
 
 
