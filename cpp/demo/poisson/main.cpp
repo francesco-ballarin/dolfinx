@@ -208,7 +208,7 @@ int main(int argc, char* argv[])
     //  and `bc` as follows:
 
     auto u = std::make_shared<fem::Function<T>>(V);
-    la::petsc::Matrix A(fem::petsc::create_matrix(a), false);
+    auto A = la::petsc::Matrix(fem::petsc::_create_matrix(a), false);
     la::Vector<T> b(L.function_spaces()[0]->dofmap()->index_map,
                     L.function_spaces()[0]->dofmap()->index_map_bs());
 

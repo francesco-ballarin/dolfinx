@@ -47,7 +47,7 @@ la::MatrixCSR<double> create_operator(MPI_Comm comm)
       fem::create_form<double, double>(*form_poisson_a, {V, V}, {},
                                        {{"kappa", kappa}}, {}, {}));
 
-  la::SparsityPattern sp = fem::create_sparsity_pattern(*a);
+  la::SparsityPattern sp = fem::_create_sparsity_pattern(*a);
   sp.finalize();
   la::MatrixCSR<double> A(sp);
   fem::assemble_matrix(A.mat_add_values(), *a, {});
@@ -90,7 +90,7 @@ la::MatrixCSR<double> create_operator(MPI_Comm comm)
                                        {{"kappa", kappa}}, {}, {}));
 
   // Create sparsity pattern
-  la::SparsityPattern sp = fem::create_sparsity_pattern(*a);
+  la::SparsityPattern sp = fem::_create_sparsity_pattern(*a);
   sp.finalize();
 
   // Assemble matrix
