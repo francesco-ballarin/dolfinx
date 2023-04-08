@@ -121,7 +121,7 @@ int main(int argc, char* argv[])
         fem::create_form<T>(*form_mixed_codim0_a_mixed, {V, W}, {}, {},
                             subdomain_map, entity_maps, V->mesh()));
 
-    la::SparsityPattern sp_mixed = fem::create_sparsity_pattern(*a_mixed);
+    la::SparsityPattern sp_mixed = fem::_create_sparsity_pattern(*a_mixed);
     sp_mixed.finalize();
     la::MatrixCSR<PetscScalar> A_mixed(sp_mixed);
     fem::assemble_matrix(A_mixed.mat_add_values(), *a_mixed, {});
@@ -129,7 +129,7 @@ int main(int argc, char* argv[])
 
     auto a = std::make_shared<fem::Form<T>>(
         fem::create_form<T>(*form_mixed_codim0_a, {W, W}, {}, {}, {}, {}));
-    la::SparsityPattern sp = fem::create_sparsity_pattern(*a);
+    la::SparsityPattern sp = fem::_create_sparsity_pattern(*a);
     sp.finalize();
 
     la::MatrixCSR<PetscScalar> A(sp);
