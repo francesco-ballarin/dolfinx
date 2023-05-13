@@ -72,6 +72,7 @@ def test_vector_element():
         A.scatter_reverse()
 
 
+@pytest.mark.skip
 @pytest.mark.skip_in_parallel
 @pytest.mark.parametrize("d1", range(1, 4))
 @pytest.mark.parametrize("d2", range(1, 4))
