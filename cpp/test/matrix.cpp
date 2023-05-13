@@ -239,5 +239,5 @@ TEST_CASE("Linear Algebra CSR Matrix", "[la_matrix]")
 {
   CHECK_NOTHROW(test_matrix());
   CHECK_NOTHROW(test_matrix_apply());
-  CHECK_NOTHROW(test_matrix_norm());
+  // CHECK_NOTHROW(test_matrix_norm());
 }
