@@ -305,50 +305,6 @@ void petsc_la_module(nb::module_& m)
       },
       nb::arg("maps"), nb::arg("is_bs"), nb::arg("ghosted") = true,
       nb::arg("ghost_block_layout") = dolfinx::la::petsc::GhostBlockLayout::intertwined);
-
-  m.def(
-      "scatter_local_vectors",
-      [](Vec x,
-         const std::vector<
-             nb::ndarray<const PetscScalar, nb::ndim<1>, nb::c_contig>>& x_b,
-         const std::vector<std::pair<
-             std::shared_ptr<const dolfinx::common::IndexMap>, int>>& maps)
-      {
-        std::vector<std::span<const PetscScalar>> _x_b;
-        std::vector<std::pair<
-            std::reference_wrapper<const dolfinx::common::IndexMap>, int>>
-            _maps;
-        for (auto& array : x_b)
-          _x_b.emplace_back(array.data(), array.size());
-        for (auto q : maps)
-          _maps.push_back({*q.first, q.second});
-
-        dolfinx::la::petsc::scatter_local_vectors(x, _x_b, _maps);
-      },
-      nb::arg("x"), nb::arg("x_b"), nb::arg("maps"),
-      "Scatter the (ordered) list of sub vectors into a block "
-      "vector.");
-
-  m.def(
-      "get_local_vectors",
-      [](const Vec x,
-         const std::vector<std::pair<
-             std::shared_ptr<const dolfinx::common::IndexMap>, int>>& maps)
-      {
-        std::vector<std::pair<
-            std::reference_wrapper<const dolfinx::common::IndexMap>, int>>
-            _maps;
-        for (auto m : maps)
-          _maps.push_back({*m.first, m.second});
-        std::vector<std::vector<PetscScalar>> vecs
-            = dolfinx::la::petsc::get_local_vectors(x, _maps);
-        std::vector<nb::ndarray<PetscScalar, nb::numpy>> ret;
-        for (std::vector<PetscScalar>& v : vecs)
-          ret.push_back(dolfinx_wrappers::as_nbarray(std::move(v)));
-        return ret;
-      },
-      nb::arg("x"), nb::arg("maps"),
-      "Gather an (ordered) list of sub vectors from a block vector.");
 }
 
 void petsc_fem_module(nb::module_& m)
