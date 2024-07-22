@@ -216,7 +216,11 @@ jobs:
           ctest -V -R demo -R mpi_2
 
       - name: Install required Python (build Python interface)
-        run: pip install nanobind scikit-build-core[pyproject]
+        run: |
+          pip install nanobind scikit-build-core[pyproject]
+          cd /dolfinx-env/lib/python3.12/site-packages/nanobind/
+          wget https://github.com/wjakob/nanobind/commit/20b06573995495c528d4acd75bda7f0430789dd8.diff
+          patch -p1 < 20b06573995495c528d4acd75bda7f0430789dd8.diff
 
       - name: Build Python interface
         run: |
