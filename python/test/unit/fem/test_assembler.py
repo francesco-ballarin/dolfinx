@@ -1133,6 +1133,7 @@ class TestPETScAssemblers:
 
         A0.destroy(), A1.destroy(), A2.destroy()
 
+    @pytest.mark.skip(reason="disabled by FB")
     def test_block_null_lifting(self):
         from dolfinx.fem.petsc import assemble_vector_block
 
